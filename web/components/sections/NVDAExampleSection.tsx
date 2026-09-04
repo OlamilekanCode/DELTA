@@ -1,3 +1,5 @@
+"use client";
+
 import dynamic from "next/dynamic";
 import DemoDataBadge from "@/components/shared/DemoDataBadge";
 import SectionReveal from "@/components/shared/SectionReveal";
