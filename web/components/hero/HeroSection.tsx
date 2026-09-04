@@ -62,7 +62,7 @@ export default function HeroSection() {
   return (
     <section
       ref={sectionRef}
-      className="relative overflow-hidden flex items-center"
+      className="relative overflow-hidden"
       style={{ minHeight: "100svh" }}
       aria-labelledby="hero-heading"
     >
@@ -94,8 +94,8 @@ export default function HeroSection() {
         style={{ background: "linear-gradient(to bottom, transparent, #030508)" }}
       />
 
-      <div className="relative w-full mx-auto max-w-7xl px-6 pb-12 pt-24 lg:px-8 lg:pt-28">
-        <div className="grid grid-cols-1 gap-14 lg:grid-cols-[44%_56%] lg:gap-8 lg:items-center">
+      <div className="relative mx-auto max-w-7xl px-6 pt-28 pb-16 lg:px-8 lg:pt-32">
+        <div className="grid grid-cols-1 gap-14 lg:grid-cols-[44%_56%] lg:gap-8 lg:items-start">
 
           {/* ── Left: Copy ── */}
           <motion.div

@@ -78,8 +78,8 @@ body::after {
   z-index: 0;
 }
 
-/* All content above pseudo-elements */
-header, main, footer, section, div, nav, aside, article {
+/* Only main content needs to sit above body pseudo-elements (z-index 0) */
+main {
   position: relative;
   z-index: 1;
 }
