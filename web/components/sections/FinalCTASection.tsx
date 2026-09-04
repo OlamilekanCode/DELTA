@@ -1,54 +1,120 @@
+"use client";
+
 import Link from "next/link";
-import SectionReveal from "@/components/shared/SectionReveal";
+import { motion, useReducedMotion } from "framer-motion";
 
 export default function FinalCTASection() {
+  const reduced = useReducedMotion();
+
   return (
-    <section className="mx-auto max-w-7xl px-6 py-24 lg:px-8" aria-labelledby="cta-heading">
-      <SectionReveal>
-        <div className="relative overflow-hidden rounded-3xl border border-violet/20 bg-panel px-8 py-16 text-center sm:px-16">
-          {/* Background glow */}
-          <div
-            className="pointer-events-none absolute inset-0"
-            aria-hidden="true"
-            style={{
-              background:
-                "radial-gradient(ellipse at 50% 0%, rgba(109,74,255,0.15) 0%, transparent 70%)",
-            }}
-          />
+    <section
+      className="relative overflow-hidden"
+      aria-labelledby="cta-heading"
+      style={{ background: "linear-gradient(135deg, #1A0A4A 0%, #0F062E 40%, #0A0420 100%)" }}
+    >
+      {/* Grid overlay */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        aria-hidden="true"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(109,74,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(109,74,255,0.06) 1px, transparent 1px)",
+          backgroundSize: "56px 56px",
+        }}
+      />
 
-          <p className="relative mb-4 font-mono text-xs font-medium uppercase tracking-[0.2em] text-violet">
-            Start now — free
-          </p>
-          <h2
-            id="cta-heading"
-            className="relative font-heading text-4xl font-bold text-text sm:text-5xl"
+      {/* Radial glow center */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        aria-hidden="true"
+        style={{
+          background:
+            "radial-gradient(ellipse 70% 80% at 50% 50%, rgba(109,74,255,0.2) 0%, transparent 65%)",
+        }}
+      />
+
+      {/* Top border */}
+      <div
+        className="absolute inset-x-0 top-0 h-px"
+        aria-hidden="true"
+        style={{ background: "linear-gradient(90deg, transparent, rgba(155,123,255,0.6), transparent)" }}
+      />
+
+      <div className="relative mx-auto max-w-7xl px-6 py-32 lg:px-8">
+        <div className="flex flex-col items-start">
+          {/* Eyebrow */}
+          <motion.p
+            className="mb-6 font-mono text-xs font-medium uppercase tracking-[0.3em] text-violet-light"
+            initial={reduced ? false : { opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
           >
-            Map the market today.
-          </h2>
-          <p className="relative mx-auto mt-5 max-w-md text-lg text-muted">
-            Explore the free NVDA example, then connect your wallet to unlock the full platform.
-          </p>
+            Start now — free
+          </motion.p>
 
-          <div className="relative mt-10 flex flex-wrap items-center justify-center gap-4">
+          {/* Big heading */}
+          <motion.h2
+            id="cta-heading"
+            className="font-heading font-bold leading-[0.9] text-white"
+            style={{ fontSize: "clamp(3rem, 9vw, 7rem)" }}
+            initial={reduced ? false : { opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.7, delay: 0.05 }}
+          >
+            Map the<br />market today.
+          </motion.h2>
+
+          {/* Subtext */}
+          <motion.p
+            className="mt-8 max-w-md font-mono text-base leading-relaxed text-white/50"
+            initial={reduced ? false : { opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.15 }}
+          >
+            Explore the free NVDA example, then connect your wallet to unlock the full platform.
+          </motion.p>
+
+          {/* CTAs */}
+          <motion.div
+            className="mt-10 flex flex-wrap items-center gap-4"
+            initial={reduced ? false : { opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+          >
             <Link
               href="/asset/NVDA"
-              className="inline-flex items-center gap-2 rounded-xl bg-violet px-8 py-4 text-base font-semibold text-white shadow-xl shadow-violet/30 transition-all hover:bg-violet-light hover:shadow-violet/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet active:scale-95"
+              className="inline-flex items-center gap-2 rounded-xl bg-white px-8 py-4 text-base font-bold text-bg transition-all hover:bg-white/90 active:scale-95"
             >
               Explore NVDA
-              <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
               </svg>
             </Link>
 
             <Link
               href="/methodology"
-              className="inline-flex items-center gap-2 rounded-xl border border-white/[0.09] bg-panel2 px-8 py-4 text-base font-semibold text-text transition-all hover:border-violet/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet active:scale-95"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/[0.06] px-8 py-4 text-base font-semibold text-white backdrop-blur-sm transition-all hover:border-white/40 hover:bg-white/[0.1] active:scale-95"
             >
               How it works
             </Link>
-          </div>
+          </motion.div>
         </div>
-      </SectionReveal>
+
+        {/* Disclaimer row */}
+        <motion.p
+          className="mt-20 font-mono text-[10px] uppercase tracking-widest text-white/25"
+          initial={reduced ? false : { opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6, delay: 0.3 }}
+        >
+          Analytical tool · Historical data only · Not financial advice
+        </motion.p>
+      </div>
     </section>
   );
 }
