@@ -84,6 +84,17 @@ header, main, footer, section, div, nav, aside, article {
   z-index: 1;
 }
 
+/* ── Dot-mat texture on every section ──────────────────── */
+main > section::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(255,255,255,0.045) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+  z-index: 0;
+}
+
 /* ── Gradient border card utility ──────────────────────── */
 .card-glow {
   background:

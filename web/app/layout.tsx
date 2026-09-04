@@ -3,6 +3,7 @@ import { Space_Grotesk, Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import Navigation from "@/components/nav/Navigation";
 import Footer from "@/components/shared/Footer";
+import MouseGlow from "@/components/shared/MouseGlow";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-space-grotesk",
@@ -31,12 +32,13 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "DELTA — Map the Market",
   description:
-    "DELTA maps how stocks and crypto move together using historical market data. Discover which crypto assets have historically tracked NVDA, TSLA, COIN, and more.",
-  keywords: ["stock crypto correlation", "exposure score", "NVDA crypto", "market analytics"],
+    "DELTA maps how stocks and crypto move together using historical market data. Discover which crypto assets have historically tracked any stock ticker.",
+  keywords: ["stock crypto correlation", "exposure score", "stock crypto", "market analytics"],
+  icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
   openGraph: {
     title: "DELTA — Map the Market",
     description:
-      "See how stocks and crypto move together. Explore Exposure Scores and interactive market graphs.",
+      "See how any stock and crypto move together. Explore Exposure Scores and interactive market graphs.",
     type: "website",
   },
 };
@@ -48,6 +50,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${spaceGrotesk.variable} ${inter.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-bg text-text font-body">
+        <MouseGlow />
         <Navigation />
         <main className="flex-1">{children}</main>
         <Footer />
