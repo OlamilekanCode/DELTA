@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import ConnectWalletButton from "@/components/wallet/ConnectWalletButton";
+import DeltaLogo from "@/components/shared/DeltaLogo";
 
 const navLinks = [
   { href: "/explore",     label: "Explore" },
@@ -48,14 +49,15 @@ export default function Navigation() {
         <nav
           role="navigation"
           aria-label="Main navigation"
-          className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8"
+          className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8"
         >
           {/* Logo */}
           <Link
             href="/"
-            className="font-heading text-2xl font-bold text-violet transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet"
+            className="flex items-center gap-2 font-heading text-2xl font-bold text-violet transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet"
             aria-label="DELTA home"
           >
+            <DeltaLogo size={24} />
             DELTA
           </Link>
 
@@ -116,7 +118,7 @@ export default function Navigation() {
           />
 
           {/* Drawer panel */}
-          <div className="absolute inset-x-0 top-0 flex flex-col bg-panel pt-20 pb-8 px-6 shadow-2xl">
+          <div className="absolute inset-x-0 top-0 flex flex-col bg-panel pt-20 pb-8 px-4 shadow-2xl sm:px-6">
             <ul className="space-y-1" role="list">
               {navLinks.map((l) => (
                 <li key={l.href}>

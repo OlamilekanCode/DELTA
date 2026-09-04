@@ -68,7 +68,7 @@ export default function HeroGraph() {
             <div className="size-3 rounded-full" style={{ background: "#F4C95D", opacity: 0.8 }} />
             <div className="size-3 rounded-full" style={{ background: "#71F79F", opacity: 0.8 }} />
           </div>
-          <span className="flex-1 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
+          <span className="flex-1 text-center font-mono text-xs uppercase tracking-[0.18em] text-muted">
             DELTA ANALYSIS ENGINE
           </span>
           <div className="flex items-center gap-1.5">
@@ -78,7 +78,7 @@ export default function HeroGraph() {
               animate={reduced ? {} : { opacity: [1, 0.3, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
             />
-            <span className="font-mono text-[9px] text-green">ACTIVE</span>
+            <span className="font-mono text-[11px] text-green">ACTIVE</span>
           </div>
         </div>
 
@@ -86,7 +86,7 @@ export default function HeroGraph() {
         <div className="flex">
           {/* Graph area */}
           <div className="relative flex-1">
-            <svg viewBox="0 0 200 200" className="h-full w-full" style={{ minHeight: 280 }} aria-hidden="true">
+            <svg viewBox="0 0 200 200" className="h-full w-full" style={{ minHeight: 220 }} aria-hidden="true">
               <defs>
                 <filter id="hg-glow" x="-80%" y="-80%" width="260%" height="260%">
                   <feGaussianBlur stdDeviation="1.8" result="blur" />
@@ -277,10 +277,10 @@ export default function HeroGraph() {
 
           {/* Scores panel */}
           <div
-            className="hidden w-[130px] shrink-0 border-l sm:flex flex-col p-3"
+            className="hidden w-[148px] shrink-0 border-l sm:flex flex-col p-4"
             style={{ borderColor: "rgba(109,74,255,0.12)" }}
           >
-            <p className="mb-3 font-mono text-[9px] uppercase tracking-[0.15em] text-muted">
+            <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.15em] text-muted">
               Top Scores
             </p>
             <div className="space-y-3">
@@ -292,8 +292,8 @@ export default function HeroGraph() {
                   transition={{ duration: 0.35, delay: 0.8 + i * 0.07 }}
                 >
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="font-mono text-[10px] font-semibold text-text">{s.symbol}</span>
-                    <span className="font-mono text-[10px]" style={{ color: s.color }}>
+                    <span className="font-mono text-xs font-semibold text-text">{s.symbol}</span>
+                    <span className="font-mono text-xs" style={{ color: s.color }}>
                       {s.score.toFixed(2)}
                     </span>
                   </div>
@@ -319,7 +319,7 @@ export default function HeroGraph() {
               {CATS.map((c) => (
                 <div key={c.label} className="flex items-center gap-1.5">
                   <div className="size-1.5 shrink-0 rounded-full" style={{ background: c.color }} />
-                  <span className="font-mono text-[8px] text-muted leading-none">{c.label}</span>
+                  <span className="font-mono text-[10px] text-muted leading-none">{c.label}</span>
                 </div>
               ))}
             </div>
@@ -333,12 +333,12 @@ export default function HeroGraph() {
         >
           <div className="flex items-center gap-3">
             {ALL_NODES.slice(0, 4).map((n) => (
-              <span key={n.id} className="font-mono text-[9px]" style={{ color: n.color }}>
+              <span key={n.id} className="font-mono text-[10px]" style={{ color: n.color }}>
                 {n.symbol} {n.score.toFixed(2)}
               </span>
             ))}
           </div>
-          <span className="font-mono text-[9px] text-muted">
+          <span className="font-mono text-[10px] text-muted">
             {ALL_NODES.length} assets mapped
           </span>
         </div>

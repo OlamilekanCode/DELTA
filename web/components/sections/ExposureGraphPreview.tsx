@@ -42,7 +42,7 @@ function NodeDetail({ node }: { node: GraphNode }) {
 
       {/* Big score */}
       <div className="mb-4 rounded-xl p-4" style={{ background: `${color}0A`, border: `1px solid ${color}25` }}>
-        <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted">Exposure Score</p>
+        <p className="mb-1 font-mono text-xs uppercase tracking-widest text-muted">Exposure Score</p>
         <p className="font-heading text-4xl font-bold" style={{ color }}>{node.score.toFixed(2)}</p>
       </div>
 
@@ -80,7 +80,7 @@ export default function ExposureGraphPreview() {
         }}
       />
 
-      <div className="relative mx-auto max-w-7xl px-6 py-24 lg:px-8">
+      <div className="relative mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         {/* Header */}
         <div className="mb-10 grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-16">
           <motion.div
@@ -139,7 +139,7 @@ export default function ExposureGraphPreview() {
               type="button"
               onClick={() => setActiveCategory(cat)}
               aria-pressed={activeCategory === cat}
-              className="rounded-full border px-4 py-1.5 font-mono text-xs font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet"
+              className="rounded-full border px-3 py-1 font-mono text-xs font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet sm:px-4 sm:py-1.5"
               style={
                 activeCategory === cat
                   ? { borderColor: "#6D4AFF", background: "rgba(109,74,255,0.2)", color: "#9B7BFF" }
@@ -155,14 +155,14 @@ export default function ExposureGraphPreview() {
           {/* SVG Graph */}
           <motion.div
             className="lg:col-span-2 overflow-hidden rounded-2xl border border-white/[0.09] bg-panel"
-            style={{ height: 400 }}
+            style={{ height: "clamp(260px, 50vw, 400px)" }}
             initial={reduced ? false : { opacity: 0, scale: 0.98 }}
             whileInView={{ opacity: 1, scale: 1 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.15 }}
           >
             <svg
-              viewBox="0 0 100 100"
+              viewBox="0 0 200 100"
               className="h-full w-full"
               role="img"
               aria-label="NVDA Exposure Graph preview — click a node to see details"
@@ -235,8 +235,9 @@ export default function ExposureGraphPreview() {
                     {/* Label */}
                     <text
                       x={node.x}
-                      y={node.isCenter ? node.y + 9 : node.y + r + 3}
+                      y={node.isCenter ? node.y + 0.8 : node.y + r + 2.5}
                       textAnchor="middle"
+                      dominantBaseline={node.isCenter ? "middle" : "auto"}
                       fontSize={node.isCenter ? 3 : 2.5}
                       fill={node.isCenter ? "#fff" : "#8E94A7"}
                       fontFamily="var(--font-ibm-plex-mono), monospace"

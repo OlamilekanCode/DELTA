@@ -34,7 +34,7 @@ export default function DeltaUtilitySection() {
         aria-hidden="true"
       />
 
-      <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         {/* Header */}
         <div className="mb-12 grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-16">
           <motion.div
@@ -86,10 +86,10 @@ export default function DeltaUtilitySection() {
           transition={{ duration: 0.6, delay: 0.15 }}
         >
           {/* Table header */}
-          <div className="grid grid-cols-[1fr_auto] border-b border-white/[0.09] bg-panel2 px-6 py-3 sm:grid-cols-[auto_1fr_auto]">
-            <span className="hidden font-mono text-[10px] uppercase tracking-widest text-muted sm:block">Feature</span>
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted sm:text-center">Description</span>
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted text-right">Status</span>
+          <div className="grid grid-cols-[1fr_auto] border-b border-white/[0.09] bg-panel2 px-4 py-3 sm:grid-cols-[auto_1fr_auto] sm:px-6">
+            <span className="hidden font-mono text-xs uppercase tracking-widest text-muted sm:block">Feature</span>
+            <span className="font-mono text-xs uppercase tracking-widest text-muted sm:text-center">Description</span>
+            <span className="font-mono text-xs uppercase tracking-widest text-muted text-right">Status</span>
           </div>
 
           {/* Rows */}
@@ -98,7 +98,7 @@ export default function DeltaUtilitySection() {
             return (
               <motion.div
                 key={f.label}
-                className="group grid grid-cols-[1fr_auto] items-center gap-4 border-b border-white/[0.06] bg-panel px-6 py-4 transition-colors hover:bg-panel2 last:border-0 sm:grid-cols-[220px_1fr_auto]"
+                className="group grid grid-cols-[1fr_auto] items-center gap-3 border-b border-white/[0.06] bg-panel px-4 py-4 transition-colors hover:bg-panel2 last:border-0 sm:grid-cols-[180px_1fr_auto] sm:gap-4 sm:px-6 lg:grid-cols-[220px_1fr_auto]"
                 initial={reduced ? false : { opacity: 0, x: -10 }}
                 whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true }}

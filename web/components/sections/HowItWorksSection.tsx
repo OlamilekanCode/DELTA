@@ -37,7 +37,7 @@ export default function HowItWorksSection() {
         aria-hidden="true"
       />
 
-      <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         {/* Header row */}
         <div className="mb-16 grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-20">
           <motion.div
@@ -82,11 +82,11 @@ export default function HowItWorksSection() {
         </div>
 
         {/* Step strip */}
-        <div className="grid grid-cols-1 overflow-hidden rounded-2xl border border-white/[0.09] sm:grid-cols-3">
+        <div className="grid grid-cols-1 overflow-hidden rounded-2xl border border-white/[0.09] sm:grid-cols-2 lg:grid-cols-3">
           {steps.map((step, i) => (
             <motion.div
               key={step.n}
-              className="group relative cursor-default border-b border-white/[0.09] p-8 transition-colors sm:border-b-0 sm:border-r last:border-0"
+              className="group relative cursor-default border-b border-white/[0.09] p-5 transition-colors sm:border-b-0 sm:border-r last:border-0 sm:p-6 lg:p-8"
               style={{ background: "#080B12" }}
               initial={reduced ? false : { opacity: 0 }}
               whileInView={{ opacity: 1 }}
@@ -109,7 +109,7 @@ export default function HowItWorksSection() {
               </div>
 
               <h3
-                className="mb-3 font-heading text-2xl font-bold leading-tight text-text"
+                className="mb-3 font-heading text-xl font-bold leading-tight text-text sm:text-2xl"
               >
                 {step.title}
               </h3>

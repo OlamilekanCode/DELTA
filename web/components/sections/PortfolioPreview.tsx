@@ -32,8 +32,8 @@ export default function PortfolioPreview() {
         }}
       />
 
-      <div className="relative mx-auto max-w-7xl px-6 py-24 lg:px-8">
-        <div className="grid grid-cols-1 gap-12 lg:grid-cols-2 lg:gap-16 lg:items-center">
+      <div className="relative mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
+        <div className="grid grid-cols-1 gap-8 sm:gap-10 lg:grid-cols-2 lg:gap-16 lg:items-center">
 
           {/* Left — copy */}
           <motion.div
@@ -75,9 +75,9 @@ export default function PortfolioPreview() {
               }}
             >
               <div>
-                <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Weighted NVDA Score</p>
+                <p className="font-mono text-xs uppercase tracking-widest text-muted">Weighted NVDA Score</p>
                 <p
-                  className="font-heading text-4xl font-bold"
+                  className="font-heading text-3xl font-bold sm:text-4xl"
                   style={{ color: "#9B7BFF" }}
                 >
                   0.42
@@ -126,7 +126,7 @@ export default function PortfolioPreview() {
                   <div className="mb-2 flex items-end justify-between">
                     <span className="font-mono text-xs text-muted">{cat.label}</span>
                     <motion.span
-                      className="font-heading text-2xl font-bold"
+                      className="font-heading text-xl font-bold sm:text-2xl"
                       style={{ color: cat.color }}
                       initial={reduced ? false : { opacity: 0 }}
                       whileInView={{ opacity: 1 }}
@@ -137,7 +137,7 @@ export default function PortfolioPreview() {
                     </motion.span>
                   </div>
                   <div
-                    className="h-3 w-full overflow-hidden rounded-full"
+                    className="h-2.5 w-full overflow-hidden rounded-full sm:h-3"
                     style={{ background: "rgba(255,255,255,0.05)" }}
                     role="presentation"
                   >
@@ -154,7 +154,7 @@ export default function PortfolioPreview() {
               ))}
             </div>
 
-            <p className="mt-6 font-mono text-[10px] text-muted/50">
+            <p className="mt-6 font-mono text-xs text-muted/50">
               Demo data · read-only wallet connection · not financial advice
             </p>
           </motion.div>

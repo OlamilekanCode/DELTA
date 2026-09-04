@@ -35,7 +35,7 @@ export default function MethodologySection() {
 
   return (
     <section className="relative overflow-hidden" aria-labelledby="methodology-heading">
-      <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         {/* Header */}
         <div className="mb-12 grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-16">
           <motion.div
@@ -80,11 +80,11 @@ export default function MethodologySection() {
         </div>
 
         {/* Disclaimer cards */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {cards.map((card, i) => (
             <motion.article
               key={card.tag}
-              className="group relative overflow-hidden rounded-2xl border p-8 transition-colors"
+              className="group relative overflow-hidden rounded-2xl border p-5 transition-colors sm:p-6 lg:p-8"
               style={{ background: card.bg, borderColor: card.border }}
               initial={reduced ? false : { opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}

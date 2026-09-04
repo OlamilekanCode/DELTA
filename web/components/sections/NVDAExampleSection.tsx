@@ -53,7 +53,7 @@ export default function NVDAExampleSection() {
         }}
       />
 
-      <div className="relative mx-auto max-w-7xl px-6 py-24 lg:px-8">
+      <div className="relative mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         {/* Eyebrow */}
         <motion.div
           className="mb-3 flex items-center gap-3"
@@ -112,7 +112,7 @@ export default function NVDAExampleSection() {
             return (
               <motion.div
                 key={s.symbol}
-                className="group relative flex flex-col items-center justify-center gap-2 bg-panel px-4 py-8 text-center transition-colors hover:bg-panel2"
+                className="group relative flex flex-col items-center justify-center gap-2 bg-panel px-3 py-5 text-center transition-colors hover:bg-panel2 sm:px-4 sm:py-8"
                 initial={reduced ? false : { opacity: 0 }}
                 whileInView={{ opacity: 1 }}
                 viewport={{ once: true }}
@@ -171,7 +171,7 @@ export default function NVDAExampleSection() {
                   </span>
                 </div>
               </div>
-              <div className="h-64 w-full">
+              <div className="h-48 w-full sm:h-56 lg:h-64">
                 <NVDAChart />
               </div>
             </div>
@@ -217,7 +217,7 @@ export default function NVDAExampleSection() {
                     </span>
                   </div>
                   <ScoreBar value={s.score} color={cat.text} />
-                  <p className="mt-1.5 font-mono text-[10px] text-muted">
+                  <p className="mt-1.5 font-mono text-xs text-muted">
                     {s.observations} observations
                   </p>
                 </motion.article>

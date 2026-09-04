@@ -62,7 +62,7 @@ export default function HeroSection() {
   return (
     <section
       ref={sectionRef}
-      className="relative overflow-hidden"
+      className="relative flex flex-col overflow-hidden"
       style={{ minHeight: "100svh" }}
       aria-labelledby="hero-heading"
     >
@@ -94,8 +94,8 @@ export default function HeroSection() {
         style={{ background: "linear-gradient(to bottom, transparent, #030508)" }}
       />
 
-      <div className="relative mx-auto max-w-7xl px-6 pt-28 pb-16 lg:px-8 lg:pt-32">
-        <div className="grid grid-cols-1 gap-14 lg:grid-cols-[44%_56%] lg:gap-8 lg:items-start">
+      <div className="relative mx-auto flex flex-1 flex-col justify-center max-w-7xl w-full px-4 pt-24 pb-12 sm:px-6 sm:pt-28 sm:pb-16 lg:px-8 lg:pt-32">
+        <div className="grid grid-cols-1 gap-8 sm:gap-10 lg:grid-cols-[44%_56%] lg:gap-8 lg:items-center">
 
           {/* ── Left: Copy ── */}
           <motion.div
@@ -115,7 +115,7 @@ export default function HeroSection() {
                 transition={{ duration: 2, repeat: Infinity }}
                 aria-hidden="true"
               />
-              <p className="font-mono text-[10px] font-medium uppercase tracking-[0.28em] text-muted">
+              <p className="font-mono text-xs font-medium uppercase tracking-[0.28em] text-muted">
                 The Stock ↔ Crypto Exposure Layer
               </p>
             </motion.div>
@@ -144,7 +144,7 @@ export default function HeroSection() {
 
             {/* Body */}
             <motion.p
-              className="mt-6 max-w-sm text-[1.05rem] leading-relaxed text-muted"
+              className="mt-6 w-full max-w-sm text-[1.05rem] leading-relaxed text-muted"
               initial={reduced ? false : { opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.15 }}
@@ -167,7 +167,7 @@ export default function HeroSection() {
                   </span>
                   <div>
                     <span className="text-sm font-semibold text-text">{b.title}</span>
-                    <span className="ml-2 font-mono text-xs text-muted">{b.body}</span>
+                    <span className="ml-2 font-mono text-[13px] text-muted">{b.body}</span>
                   </div>
                 </li>
               ))}
@@ -175,7 +175,7 @@ export default function HeroSection() {
 
             {/* CTAs */}
             <motion.div
-              className="mt-10 flex flex-wrap items-center gap-3"
+              className="mt-10 flex flex-wrap items-center gap-2 sm:gap-3"
               initial={reduced ? false : { opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.3 }}
@@ -204,7 +204,8 @@ export default function HeroSection() {
 
             {/* Disclaimer */}
             <motion.p
-              className="mt-7 font-mono text-[9px] uppercase tracking-widest text-muted/40"
+              className="mt-7 font-mono text-[11px] uppercase tracking-widest text-muted/60"
+              style={{ textShadow: "0 0 12px rgba(109,74,255,0.5), 0 1px 3px rgba(0,0,0,0.8)" }}
               initial={reduced ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.45 }}

@@ -23,14 +23,15 @@ export const heroEdges: GraphEdge[] = [
   { from: "nvda", to: "arb",  weight: 0.49 },
 ];
 
+// viewBox: "0 0 200 100", center at (100, 50), radius 38 — 8 nodes evenly at 45° intervals
 export const previewNodes: GraphNode[] = [
-  { id: "nvda", symbol: "NVDA", name: "NVIDIA",    category: "Semiconductors", score: 1,    price: "Demo data", x: 50, y: 50, isCenter: true },
-  { id: "btc",  symbol: "BTC",  name: "Bitcoin",   category: "BTC Ecosystem",  score: 0.78, price: "Demo data", x: 50, y: 12 },
-  { id: "eth",  symbol: "ETH",  name: "Ethereum",  category: "DeFi",           score: 0.71, price: "Demo data", x: 82, y: 25 },
-  { id: "sol",  symbol: "SOL",  name: "Solana",    category: "AI",             score: 0.65, price: "Demo data", x: 88, y: 58 },
-  { id: "avax", symbol: "AVAX", name: "Avalanche", category: "DeFi",           score: 0.58, price: "Demo data", x: 72, y: 85 },
-  { id: "link", symbol: "LINK", name: "Chainlink", category: "AI",             score: 0.52, price: "Demo data", x: 40, y: 90 },
-  { id: "rndr", symbol: "RNDR", name: "Render",    category: "AI",             score: 0.61, price: "Demo data", x: 14, y: 72 },
-  { id: "fet",  symbol: "FET",  name: "Fetch.ai",  category: "AI",             score: 0.56, price: "Demo data", x: 10, y: 40 },
-  { id: "arb",  symbol: "ARB",  name: "Arbitrum",  category: "DeFi",           score: 0.49, price: "Demo data", x: 26, y: 18 },
+  { id: "nvda", symbol: "NVDA", name: "NVIDIA",    category: "Semiconductors", score: 1,    price: "Demo data", x: 100, y: 50,  isCenter: true },
+  { id: "btc",  symbol: "BTC",  name: "Bitcoin",   category: "BTC Ecosystem",  score: 0.78, price: "Demo data", x: 100, y: 12  },
+  { id: "eth",  symbol: "ETH",  name: "Ethereum",  category: "DeFi",           score: 0.71, price: "Demo data", x: 127, y: 23  },
+  { id: "sol",  symbol: "SOL",  name: "Solana",    category: "AI",             score: 0.65, price: "Demo data", x: 138, y: 50  },
+  { id: "avax", symbol: "AVAX", name: "Avalanche", category: "DeFi",           score: 0.58, price: "Demo data", x: 127, y: 77  },
+  { id: "link", symbol: "LINK", name: "Chainlink", category: "AI",             score: 0.52, price: "Demo data", x: 100, y: 88  },
+  { id: "rndr", symbol: "RNDR", name: "Render",    category: "AI",             score: 0.61, price: "Demo data", x: 73,  y: 77  },
+  { id: "fet",  symbol: "FET",  name: "Fetch.ai",  category: "AI",             score: 0.56, price: "Demo data", x: 62,  y: 50  },
+  { id: "arb",  symbol: "ARB",  name: "Arbitrum",  category: "DeFi",           score: 0.49, price: "Demo data", x: 73,  y: 23  },
 ];
