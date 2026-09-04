@@ -14,6 +14,7 @@ export default function NVDAChart() {
       if (!containerRef.current) return;
 
       const chart = createChart(containerRef.current, {
+        autoSize: true,
         layout: {
           background: { color: "transparent" },
           textColor: "#8E94A7",

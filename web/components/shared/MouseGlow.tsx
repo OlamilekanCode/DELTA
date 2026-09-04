@@ -8,6 +8,14 @@ export default function MouseGlow() {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+
+    const isTouch = window.matchMedia("(hover: none)").matches;
+    const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (isTouch || prefersReduced) {
+      el.style.display = "none";
+      return;
+    }
+
     let animId = 0;
     let tx = -600, ty = -600;
     let cx = -600, cy = -600;

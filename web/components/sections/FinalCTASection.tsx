@@ -86,7 +86,7 @@ export default function FinalCTASection() {
             transition={{ duration: 0.6, delay: 0.2 }}
           >
             <Link
-              href="/asset/NVDA"
+              href="/#nvda-example"
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-8 py-4 text-base font-bold text-bg transition-all hover:bg-white/90 active:scale-95 sm:w-auto sm:justify-start"
             >
               Explore NVDA

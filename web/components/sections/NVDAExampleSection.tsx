@@ -39,6 +39,7 @@ export default function NVDAExampleSection() {
 
   return (
     <section
+      id="nvda-example"
       className="relative overflow-hidden"
       aria-labelledby="nvda-heading"
       style={{ background: "linear-gradient(180deg, #030508 0%, #060414 50%, #030508 100%)" }}
@@ -63,7 +64,7 @@ export default function NVDAExampleSection() {
           transition={{ duration: 0.5 }}
         >
           <p className="font-mono text-xs font-medium uppercase tracking-[0.25em] text-violet">
-            Live example
+            NVDA example
           </p>
           <DemoDataBadge />
         </motion.div>

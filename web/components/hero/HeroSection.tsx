@@ -37,8 +37,8 @@ const bullets = [
         <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
       </svg>
     ),
-    title: "Real Correlation",
-    body: "90-day Pearson on aligned returns",
+    title: "Pearson Correlation",
+    body: "90-day on aligned daily returns",
   },
   {
     icon: (
@@ -181,7 +181,7 @@ export default function HeroSection() {
               transition={{ duration: 0.6, delay: 0.3 }}
             >
               <Link
-                href="/asset/NVDA"
+                href="/#nvda-example"
                 className="inline-flex items-center gap-2 rounded-xl px-6 py-3.5 text-sm font-bold text-white transition-all active:scale-95"
                 style={{
                   background: "linear-gradient(135deg, #6D4AFF 0%, #4F35CC 100%)",
