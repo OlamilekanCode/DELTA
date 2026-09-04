@@ -8,12 +8,12 @@ export default function NVDAChart() {
 
   useEffect(() => {
     if (!containerRef.current) return;
-    let chart: { remove: () => void } | null = null;
+    let cleanup: (() => void) | null = null;
 
-    import("lightweight-charts").then(({ createChart, LineStyle }) => {
+    import("lightweight-charts").then(({ createChart, LineSeries }) => {
       if (!containerRef.current) return;
 
-      chart = createChart(containerRef.current, {
+      const chart = createChart(containerRef.current, {
         layout: {
           background: { color: "transparent" },
           textColor: "#8E94A7",
@@ -23,46 +23,29 @@ export default function NVDAChart() {
           horzLines: { color: "rgba(255,255,255,0.04)" },
         },
         rightPriceScale: { borderColor: "rgba(255,255,255,0.09)" },
-        timeScale: {
-          borderColor: "rgba(255,255,255,0.09)",
-          timeVisible: true,
-        },
+        timeScale: { borderColor: "rgba(255,255,255,0.09)", timeVisible: true },
         crosshair: { mode: 1 },
         handleScale: true,
         handleScroll: true,
       });
 
-      const nvdaSeries = chart.addLineSeries({
-        color: "#6D4AFF",
-        lineWidth: 2,
-        title: "NVDA",
-        lineStyle: LineStyle.Solid,
-      });
+      cleanup = () => chart.remove();
 
-      const btcSeries = chart.addLineSeries({
-        color: "#F7931A",
-        lineWidth: 2,
-        title: "BTC",
-        lineStyle: LineStyle.Solid,
-      });
+      const nvdaSeries = chart.addSeries(LineSeries, { color: "#6D4AFF", lineWidth: 2, title: "NVDA" });
+      const btcSeries  = chart.addSeries(LineSeries, { color: "#F7931A", lineWidth: 2, title: "BTC" });
+      const ethSeries  = chart.addSeries(LineSeries, { color: "#3D7BFF", lineWidth: 2, title: "ETH" });
 
-      const ethSeries = chart.addLineSeries({
-        color: "#3D7BFF",
-        lineWidth: 2,
-        title: "ETH",
-        lineStyle: LineStyle.Solid,
-      });
+      type ChartTime = import("lightweight-charts").Time;
+      const t = (d: string) => d as ChartTime;
 
-      const toChartTime = (d: string) => d as unknown as import("lightweight-charts").Time;
-
-      nvdaSeries.setData(nvdaChartData.map((p) => ({ time: toChartTime(p.date), value: p.nvda })));
-      btcSeries.setData(nvdaChartData.map((p) => ({ time: toChartTime(p.date), value: p.btc })));
-      ethSeries.setData(nvdaChartData.map((p) => ({ time: toChartTime(p.date), value: p.eth })));
+      nvdaSeries.setData(nvdaChartData.map((p) => ({ time: t(p.date), value: p.nvda })));
+      btcSeries.setData(nvdaChartData.map((p) => ({ time: t(p.date), value: p.btc })));
+      ethSeries.setData(nvdaChartData.map((p) => ({ time: t(p.date), value: p.eth })));
 
       chart.timeScale().fitContent();
     });
 
-    return () => { chart?.remove(); };
+    return () => { cleanup?.(); };
   }, []);
 
   return <div ref={containerRef} className="h-full w-full" />;

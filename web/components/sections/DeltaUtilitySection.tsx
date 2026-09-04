@@ -1,6 +1,8 @@
 import SectionReveal from "@/components/shared/SectionReveal";
 
-const features = [
+type FeatureStatus = "available" | "phase2" | "phase3";
+
+const features: { label: string; status: FeatureStatus; note: string }[] = [
   { label: "Advanced Exposure Scores",    status: "available",  note: "Available with $DELTA" },
   { label: "Deeper Graph Levels",         status: "available",  note: "Available with $DELTA" },
   { label: "Portfolio Exposure",          status: "available",  note: "Available with $DELTA" },
