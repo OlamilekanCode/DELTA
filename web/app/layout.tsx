@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type React from "react";
 import { Space_Grotesk, Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import Navigation from "@/components/nav/Navigation";
@@ -43,7 +44,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"
