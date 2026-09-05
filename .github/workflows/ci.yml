@@ -37,6 +37,36 @@ jobs:
       - name: Production build
         run: npm run build
         env:
-          # Env vars required for the build step
           NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
           NEXT_PUBLIC_CHAIN_ID: '8453'
+          NEXT_PUBLIC_REOWN_PROJECT_ID: ''
+
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: api/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Run tests
+        run: pytest tests/ -v
+        env:
+          DATABASE_URL: 'sqlite+aiosqlite:///./test.db'
+          USE_DEMO_DATA: 'true'
+          CORS_ORIGINS: 'http://localhost:3000'
