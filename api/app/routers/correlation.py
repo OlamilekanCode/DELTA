@@ -1,10 +1,9 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.database import get_db
 from app.models.asset import Asset
 from app.models.price import DailyPrice
@@ -37,7 +36,7 @@ async def _load_prices(db: AsyncSession, asset_id: int, days: int) -> list[Price
 @router.get("/correlation/{stock_symbol}", response_model=CorrelationResult)
 async def get_correlation(
     stock_symbol: str,
-    days: int = 90,
+    days: int = Query(default=90, ge=60, le=90),
     db: AsyncSession = Depends(get_db),
 ) -> CorrelationResult:
     symbol = stock_symbol.upper()
@@ -80,7 +79,15 @@ async def get_correlation(
                 PriceSeriesPoint(date=prices[i].date, value=v) for i, v in enumerate(norm)
             ]
 
-    settings = get_settings()
+    # Reflect actual data origin from DB rows, not just the env var.
+    is_demo_row = await db.execute(
+        select(DailyPrice.is_demo)
+        .where(DailyPrice.asset_id == stock_asset.id)
+        .limit(1)
+    )
+    _is_demo_val = is_demo_row.scalar()
+    actual_demo = bool(_is_demo_val) if _is_demo_val is not None else True
+
     return CorrelationResult(
         stock=StockInfo(symbol=stock_asset.symbol, name=stock_asset.name),
         scores=[
@@ -95,6 +102,6 @@ async def get_correlation(
             for s in scores
         ],
         price_series=PriceSeriesOut(stock=stock_series, crypto=crypto_series),
-        demo=settings.use_demo_data,
+        demo=actual_demo,
         generated_at=datetime.now(UTC),
     )
