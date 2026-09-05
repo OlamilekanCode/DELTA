@@ -54,7 +54,7 @@ def test_normalize_base100() -> None:
 def test_align_series_basic() -> None:
     a = [PricePoint("2026-01-01", 100.0), PricePoint("2026-01-02", 110.0), PricePoint("2026-01-03", 105.0)]
     b = [PricePoint("2026-01-01", 200.0), PricePoint("2026-01-03", 210.0)]
-    xa, xb, dates = align_series(a, b)
+    xa, _, dates = align_series(a, b)
     assert len(xa) == 2
     assert dates == ["2026-01-01", "2026-01-03"]
 
@@ -132,6 +132,18 @@ async def test_correlation_scores_are_non_negative(client: AsyncClient) -> None:
 async def test_correlation_unknown_symbol_returns_404(client: AsyncClient) -> None:
     r = await client.get("/api/v1/correlation/FAKE")
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_correlation_days_too_small(client: AsyncClient) -> None:
+    r = await client.get("/api/v1/correlation/NVDA?days=10")
+    assert r.status_code == 422  # FastAPI Query validation
+
+
+@pytest.mark.asyncio
+async def test_correlation_days_too_large(client: AsyncClient) -> None:
+    r = await client.get("/api/v1/correlation/NVDA?days=200")
+    assert r.status_code == 422
 
 
 @pytest.mark.asyncio
