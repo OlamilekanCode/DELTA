@@ -58,9 +58,9 @@ export default async function NVDAExampleSection() {
 
     chartData = commonDates.map((d) => ({
       date: d,
-      nvda: stockByDate[d],
-      btc: btcByDate[d],
-      eth: ethByDate[d],
+      nvda: stockByDate[d]!,
+      btc: btcByDate[d]!,
+      eth: ethByDate[d]!,
     }));
 
     isDemo = apiData.demo;
