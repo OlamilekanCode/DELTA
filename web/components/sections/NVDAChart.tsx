@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { nvdaChartData } from "@/lib/fixtures/nvda-chart";
+import type { PricePoint } from "@/lib/types";
 
-export default function NVDAChart() {
+interface Props {
+  data: PricePoint[];
+}
+
+export default function NVDAChart({ data }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || data.length === 0) return;
     let cleanup: (() => void) | null = null;
 
     import("lightweight-charts").then(({ createChart, LineSeries }) => {
@@ -39,15 +43,15 @@ export default function NVDAChart() {
       type ChartTime = import("lightweight-charts").Time;
       const t = (d: string) => d as ChartTime;
 
-      nvdaSeries.setData(nvdaChartData.map((p) => ({ time: t(p.date), value: p.nvda })));
-      btcSeries.setData(nvdaChartData.map((p) => ({ time: t(p.date), value: p.btc })));
-      ethSeries.setData(nvdaChartData.map((p) => ({ time: t(p.date), value: p.eth })));
+      nvdaSeries.setData(data.map((p) => ({ time: t(p.date), value: p.nvda })));
+      btcSeries.setData(data.map((p) => ({ time: t(p.date), value: p.btc })));
+      ethSeries.setData(data.map((p) => ({ time: t(p.date), value: p.eth })));
 
       chart.timeScale().fitContent();
     });
 
     return () => { cleanup?.(); };
-  }, []);
+  }, [data]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }
