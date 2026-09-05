@@ -42,6 +42,7 @@ export default async function NVDAExampleSection() {
     }));
 
     const ps = apiData.price_series;
+    const stockByDate = Object.fromEntries(ps.stock.map((p) => [p.date, p.value]));
     const btcByDate = Object.fromEntries(
       (ps.crypto["BTC"] ?? []).map((p) => [p.date, p.value])
     );
@@ -49,11 +50,17 @@ export default async function NVDAExampleSection() {
       (ps.crypto["ETH"] ?? []).map((p) => [p.date, p.value])
     );
 
-    chartData = ps.stock.map((p) => ({
-      date: p.date,
-      nvda: p.value,
-      btc: btcByDate[p.date] ?? p.value,
-      eth: ethByDate[p.date] ?? p.value,
+    // Inner-join: only render dates where all three series have a value.
+    // Never substitute NVDA's price for missing BTC or ETH data.
+    const commonDates = ps.stock
+      .map((p) => p.date)
+      .filter((d) => btcByDate[d] !== undefined && ethByDate[d] !== undefined);
+
+    chartData = commonDates.map((d) => ({
+      date: d,
+      nvda: stockByDate[d],
+      btc: btcByDate[d],
+      eth: ethByDate[d],
     }));
 
     isDemo = apiData.demo;
