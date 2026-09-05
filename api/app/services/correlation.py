@@ -80,6 +80,8 @@ def compute_exposure_scores(
             continue
         s_rets = log_returns([stock_by_date[d] for d in common_dates])
         c_rets = log_returns([crypto_by_date[d] for d in common_dates])
+        if len(s_rets) < MIN_OBSERVATIONS:
+            continue
         r, n = pearson_r(s_rets, c_rets)
         results.append(ExposureScore(
             symbol=symbol,

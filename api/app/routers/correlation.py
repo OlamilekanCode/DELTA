@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -22,15 +22,13 @@ _CHART_SYMBOLS = {"BTC", "ETH", "SOL"}
 
 
 async def _load_prices(db: AsyncSession, asset_id: int, days: int) -> list[PricePoint]:
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
     result = await db.execute(
         select(DailyPrice.date, DailyPrice.close)
-        .where(DailyPrice.asset_id == asset_id)
-        .order_by(DailyPrice.date.desc())
-        .limit(days)
+        .where(DailyPrice.asset_id == asset_id, DailyPrice.date >= cutoff)
+        .order_by(DailyPrice.date.asc())
     )
-    rows = result.all()
-    # Reverse to chronological order
-    return [PricePoint(date=r.date, close=r.close) for r in reversed(rows)]
+    return [PricePoint(date=r.date, close=r.close) for r in result.all()]
 
 
 @router.get("/correlation/{stock_symbol}", response_model=CorrelationResult)
@@ -79,14 +77,16 @@ async def get_correlation(
                 PriceSeriesPoint(date=prices[i].date, value=v) for i, v in enumerate(norm)
             ]
 
-    # Reflect actual data origin from DB rows, not just the env var.
-    is_demo_row = await db.execute(
+    # demo=True if ANY price row used in this response is a fixture row.
+    used_asset_ids = {stock_asset.id} | {
+        asset.id for asset in crypto_assets if asset.symbol in crypto_map
+    }
+    any_demo_row = await db.execute(
         select(DailyPrice.is_demo)
-        .where(DailyPrice.asset_id == stock_asset.id)
+        .where(DailyPrice.asset_id.in_(used_asset_ids), DailyPrice.is_demo == True)  # noqa: E712
         .limit(1)
     )
-    _is_demo_val = is_demo_row.scalar()
-    actual_demo = bool(_is_demo_val) if _is_demo_val is not None else True
+    actual_demo = any_demo_row.scalar() is True
 
     return CorrelationResult(
         stock=StockInfo(symbol=stock_asset.symbol, name=stock_asset.name),
