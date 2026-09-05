@@ -1,7 +1,7 @@
 import sys
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -41,6 +41,13 @@ async def _upsert_prices(
 ) -> int:
     if not rows:
         return 0
+    # Delete any rows from the opposite source so an asset never holds a mix.
+    await db.execute(
+        delete(DailyPrice).where(
+            DailyPrice.asset_id == asset_id,
+            DailyPrice.is_demo == (not is_demo),
+        )
+    )
     dates = [r.date for r in rows]
     result = await db.execute(
         select(DailyPrice).where(
@@ -107,31 +114,40 @@ async def ingest_asset(
 
 
 async def seed_fixture_data(db: AsyncSession) -> None:
-    """Called by lifespan when USE_DEMO_DATA=true. Seeds catalogue + fixture prices."""
-    result = await db.execute(select(Asset).limit(1))
-    if result.scalar():
-        return  # Already seeded
-
+    """Called by lifespan when USE_DEMO_DATA=true. Seeds catalogue + fixture prices idempotently."""
     provider = FixtureProvider()
     for asset_data in FIXTURE_ASSETS:
-        asset = Asset(
-            symbol=asset_data["symbol"],
-            name=asset_data["name"],
-            asset_type=asset_data["asset_type"],
-            category=asset_data["category"],
-            coingecko_id=asset_data.get("coingecko_id"),
-            updated_at=datetime.now(UTC),
-        )
-        db.add(asset)
-        await db.flush()
+        result = await db.execute(select(Asset).where(Asset.symbol == asset_data["symbol"]))
+        asset = result.scalar_one_or_none()
+        if not asset:
+            asset = Asset(
+                symbol=asset_data["symbol"],
+                name=asset_data["name"],
+                asset_type=asset_data["asset_type"],
+                category=asset_data["category"],
+                coingecko_id=asset_data.get("coingecko_id"),
+                updated_at=datetime.now(UTC),
+            )
+            db.add(asset)
+            await db.flush()
         rows = await provider.fetch_ohlcv(asset.symbol, 90)
         await _upsert_prices(db, asset.id, rows, is_demo=True)
-
     await db.commit()
 
 
 async def main() -> None:
     settings = get_settings()
+    if not settings.use_demo_data:
+        missing = [
+            k for k, v in [
+                ("MARKETSTACK_API_KEY", settings.marketstack_api_key),
+                ("COINGECKO_API_KEY", settings.coingecko_api_key),
+            ] if not v
+        ]
+        if missing:
+            for key in missing:
+                print(f"ERROR: {key} is required when USE_DEMO_DATA=false", file=sys.stderr)
+            sys.exit(1)
     init_db(settings.database_url)
     try:
         async with get_factory()() as db:
