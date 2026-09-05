@@ -1,4 +1,4 @@
-from sqlalchemy import Float, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -18,3 +18,4 @@ class DailyPrice(Base):
     date: Mapped[str] = mapped_column(String(10), nullable=False)  # "YYYY-MM-DD"
     close: Mapped[float] = mapped_column(Float, nullable=False)
     volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
