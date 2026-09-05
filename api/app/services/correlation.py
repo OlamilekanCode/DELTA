@@ -67,20 +67,20 @@ def compute_exposure_scores(
     stock_prices: list[PricePoint],
     crypto_map: dict[str, tuple[str, str, list[PricePoint]]],  # symbol -> (name, category, prices)
 ) -> list[ExposureScore]:
-    stock_rets = log_returns([p.close for p in stock_prices])
-    if not stock_rets:
-        return []
+    stock_by_date = {p.date: p.close for p in stock_prices}
 
     results: list[ExposureScore] = []
     for symbol, (name, category, crypto_prices) in crypto_map.items():
-        aligned_s, aligned_c, _ = align_series(
-            [PricePoint(date=stock_prices[i + 1].date, close=stock_rets[i]) for i in range(len(stock_rets))],
-            [PricePoint(date=p.date, close=math.log(crypto_prices[j + 1].close / crypto_prices[j].close))
-             for j, p in enumerate(crypto_prices[1:])],
-        )
-        if len(aligned_s) < MIN_OBSERVATIONS:
+        crypto_by_date = {p.date: p.close for p in crypto_prices}
+        # Inner-join by date first, then compute log returns on aligned prices.
+        # This ensures stock and crypto returns span identical date intervals
+        # (e.g. Monday's return uses Friday's close for both, not Sunday's for crypto).
+        common_dates = sorted(set(stock_by_date) & set(crypto_by_date))
+        if len(common_dates) < 2:
             continue
-        r, n = pearson_r(aligned_s, aligned_c)
+        s_rets = log_returns([stock_by_date[d] for d in common_dates])
+        c_rets = log_returns([crypto_by_date[d] for d in common_dates])
+        r, n = pearson_r(s_rets, c_rets)
         results.append(ExposureScore(
             symbol=symbol,
             name=name,

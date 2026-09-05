@@ -4,8 +4,10 @@ import pytest
 from httpx import AsyncClient
 
 from app.services.correlation import (
+    MIN_OBSERVATIONS,
     PricePoint,
     align_series,
+    compute_exposure_scores,
     log_returns,
     normalize_base100,
     pearson_r,
@@ -55,6 +57,49 @@ def test_align_series_basic() -> None:
     xa, xb, dates = align_series(a, b)
     assert len(xa) == 2
     assert dates == ["2026-01-01", "2026-01-03"]
+
+
+def test_compute_scores_aligns_before_log_returns() -> None:
+    # Stock: weekdays only (Mon–Fri over 10 weeks = 50 days → 49 returns after alignment)
+    # Crypto: every day including weekends
+    import datetime
+
+    start = datetime.date(2026, 1, 5)  # Monday
+    stock_prices: list[PricePoint] = []
+    crypto_prices: list[PricePoint] = []
+    price = 100.0
+    crypto_price = 50000.0
+    day = start
+    for _ in range(70):  # 10 weeks of calendar days
+        if day.weekday() < 5:  # weekday
+            stock_prices.append(PricePoint(day.isoformat(), round(price, 4)))
+            price *= 1.001
+        crypto_prices.append(PricePoint(day.isoformat(), round(crypto_price, 4)))
+        crypto_price *= 1.0005
+        day += datetime.timedelta(days=1)
+
+    crypto_map = {"BTC": ("Bitcoin", "BTC Ecosystem", crypto_prices)}
+    scores = compute_exposure_scores(stock_prices, crypto_map)
+
+    assert len(scores) == 1
+    s = scores[0]
+    # Observations must equal weekday pairs only (common dates - 1)
+    common_count = sum(1 for p in stock_prices if any(c.date == p.date for c in crypto_prices))
+    assert s.observations == common_count - 1
+    assert s.observations >= MIN_OBSERVATIONS
+
+
+def test_compute_scores_with_missing_dates() -> None:
+    # Both series share dates except one gap in the middle for crypto
+    stock = [PricePoint(f"2026-01-{d:02d}", float(100 + d)) for d in range(1, 60)]
+    # Crypto missing Jan 15
+    crypto = [PricePoint(f"2026-01-{d:02d}", float(200 + d)) for d in range(1, 60) if d != 15]
+
+    scores = compute_exposure_scores(stock, {"ETH": ("Ethereum", "DeFi", crypto)})
+
+    assert len(scores) == 1
+    # The gap date is excluded from common_dates → observations = (58 common dates) - 1 = 57
+    assert scores[0].observations == 57
 
 
 # ── Integration tests ───────────────────────────────────────────────────────
