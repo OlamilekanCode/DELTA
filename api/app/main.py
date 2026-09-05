@@ -1,8 +1,56 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="DELTA API", version="0.1.0")
+from app.config import get_settings
+from app.database import Base, get_engine, init_db
+from app.routers import assets, correlation, health
 
 
-@app.get("/api/v1/health")
-async def health():
-    return {"status": "ok"}
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    settings = get_settings()
+    init_db(settings.database_url)
+
+    async with get_engine().begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    if settings.use_demo_data:
+        from app.database import get_factory
+        from app.ingestion.runner import seed_fixture_data
+
+        async with get_factory()() as db:
+            await seed_fixture_data(db)
+
+    yield
+
+    await get_engine().dispose()
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    application = FastAPI(
+        title="DELTA API",
+        version="2.0.0",
+        description="Stock ↔ Crypto Exposure Layer",
+        lifespan=lifespan,
+    )
+
+    origins = settings.parsed_cors_origins
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_methods=["GET", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+    application.include_router(health.router, prefix="/api/v1")
+    application.include_router(assets.router, prefix="/api/v1")
+    application.include_router(correlation.router, prefix="/api/v1")
+
+    return application
+
+
+app = create_app()
