@@ -5,6 +5,7 @@ import "./globals.css";
 import Navigation from "@/components/nav/Navigation";
 import Footer from "@/components/shared/Footer";
 import MouseGlow from "@/components/shared/MouseGlow";
+import Web3Provider from "@/components/providers/Web3Provider";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-space-grotesk",
@@ -51,10 +52,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${spaceGrotesk.variable} ${inter.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-bg text-text font-body">
-        <MouseGlow />
-        <Navigation />
-        <main className="flex-1">{children}</main>
-        <Footer />
+        <Web3Provider>
+          <MouseGlow />
+          <Navigation />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </Web3Provider>
       </body>
     </html>
   );
