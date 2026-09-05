@@ -89,6 +89,48 @@ def test_compute_scores_aligns_before_log_returns() -> None:
     assert s.observations >= MIN_OBSERVATIONS
 
 
+def test_weekday_stock_vs_daily_crypto_aligns_on_common_dates() -> None:
+    """Stock dates are weekdays-only; crypto includes weekends. Inner-join must drop weekend-only dates."""
+    import datetime
+
+    start = datetime.date(2026, 1, 5)  # Monday
+    stock: list[PricePoint] = []
+    crypto: list[PricePoint] = []
+    price, cprice = 100.0, 50000.0
+    day = start
+    for _ in range(14):  # two weeks of calendar days — only 10 weekday pairs, well below MIN_OBSERVATIONS
+        if day.weekday() < 5:
+            stock.append(PricePoint(day.isoformat(), round(price, 4)))
+            price *= 1.001
+        crypto.append(PricePoint(day.isoformat(), round(cprice, 4)))
+        cprice *= 1.0005
+        day += datetime.timedelta(days=1)
+
+    scores = compute_exposure_scores(stock, {"BTC": ("Bitcoin", "Layer 1", crypto)})
+    # 10 common weekday dates → 9 log-return pairs → below MIN_OBSERVATIONS → skipped entirely
+    assert len(scores) == 0
+
+
+def test_insufficient_aligned_observations_excluded() -> None:
+    """Crypto with fewer than MIN_OBSERVATIONS aligned returns must be excluded, not scored 0."""
+    from datetime import date, timedelta
+
+    # MIN_OBSERVATIONS dates → MIN_OBSERVATIONS - 1 log returns → below threshold
+    dates = [(date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(MIN_OBSERVATIONS)]
+    stock = [PricePoint(date=d, close=100.0 + i) for i, d in enumerate(dates)]
+    crypto = [PricePoint(date=d, close=50000.0 + i) for i, d in enumerate(dates)]
+
+    results = compute_exposure_scores(stock, {"BTC": ("Bitcoin", "Layer 1", crypto)})
+    assert len(results) == 0  # excluded, not appended with score=0
+
+    # One extra date → exactly MIN_OBSERVATIONS returns → must be included
+    extra = (date(2026, 1, 1) + timedelta(days=MIN_OBSERVATIONS)).isoformat()
+    stock2 = stock + [PricePoint(date=extra, close=200.0)]
+    crypto2 = crypto + [PricePoint(date=extra, close=60000.0)]
+    results2 = compute_exposure_scores(stock2, {"BTC": ("Bitcoin", "Layer 1", crypto2)})
+    assert len(results2) == 1
+
+
 def test_compute_scores_with_missing_dates() -> None:
     # Both series share dates except one gap in the middle for crypto
     stock = [PricePoint(f"2026-01-{d:02d}", float(100 + d)) for d in range(1, 60)]

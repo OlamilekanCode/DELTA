@@ -12,12 +12,18 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from app.config import Settings
-from app.ingestion.runner import _get_provider, ingest_asset, seed_asset_catalogue
+from app.ingestion.runner import (
+    _get_provider,
+    ingest_asset,
+    seed_asset_catalogue,
+    seed_fixture_data,
+)
 from app.models.asset import Asset
 from app.models.price import DailyPrice
 from app.providers.coingecko import CoinGeckoProvider
 from app.providers.fixtures import FixtureProvider
 from app.providers.marketstack import MarketstackProvider
+from app.services.correlation import MIN_OBSERVATIONS
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -176,18 +182,119 @@ async def test_seed_asset_catalogue_is_idempotent(db) -> None:
     assert count_before == count_after
 
 
+# ── New data-integrity tests ─────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_real_ingest_deletes_all_fixture_rows(db, httpx_mock) -> None:
+    """After real ingestion, zero fixture rows (is_demo=True) must remain — even dates not in the fetch."""
+    asset = (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one()
+
+    fixture_count = (
+        await db.execute(
+            select(func.count()).where(DailyPrice.asset_id == asset.id, DailyPrice.is_demo == True)  # noqa: E712
+        )
+    ).scalar()
+    assert fixture_count > 0  # pre-condition: fixture rows exist
+
+    # Use a date range offset by 5 days so some fixture dates are NOT covered by the real fetch.
+    alt_start = _FIXTURE_START + timedelta(days=5)
+    httpx_mock.add_response(
+        url=re.compile(r"https://api\.coingecko\.com/.*bitcoin.*"),
+        json={
+            "prices": [
+                [_ts_ms(alt_start + timedelta(days=i)), 60000.0 + i * 50]
+                for i in range(MIN_OBSERVATIONS + 5)
+            ]
+        },
+    )
+    await ingest_asset(db, asset, CoinGeckoProvider("key"))
+
+    # ALL fixture rows must be deleted — including dates absent from the real fetch.
+    fixture_after = (
+        await db.execute(
+            select(func.count()).where(DailyPrice.asset_id == asset.id, DailyPrice.is_demo == True)  # noqa: E712
+        )
+    ).scalar()
+    assert fixture_after == 0
+
+
+@pytest.mark.asyncio
+async def test_seed_asset_catalogue_partial(db) -> None:
+    """seed_asset_catalogue must re-add an asset that was removed, without duplicating others."""
+    btc = (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one()
+    await db.delete(btc)
+    await db.flush()
+
+    count_without_btc = (await db.execute(select(func.count()).select_from(Asset))).scalar()
+    await seed_asset_catalogue(db)
+    count_after = (await db.execute(select(func.count()).select_from(Asset))).scalar()
+
+    assert count_after == count_without_btc + 1
+    assert (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one_or_none() is not None
+
+
+@pytest.mark.asyncio
+async def test_missing_key_prevents_any_db_write(db) -> None:
+    """_get_provider exits with code 1 before any DB write when a required key is absent."""
+    price_count_before = (await db.execute(select(func.count()).select_from(DailyPrice))).scalar()
+
+    s = Settings(use_demo_data=False, marketstack_api_key="", coingecko_api_key="cg-key")
+    with pytest.raises(SystemExit) as exc:
+        _get_provider("stock", s)
+    assert exc.value.code == 1
+
+    price_count_after = (await db.execute(select(func.count()).select_from(DailyPrice))).scalar()
+    assert price_count_after == price_count_before
+
+
+@pytest.mark.asyncio
+async def test_demo_true_when_any_price_row_is_fixture(client: AsyncClient, db, httpx_mock) -> None:
+    """Correlation response must be demo=True when stock is real but crypto is still fixture."""
+    nvda = (await db.execute(select(Asset).where(Asset.symbol == "NVDA"))).scalar_one()
+
+    httpx_mock.add_response(
+        url=re.compile(r"https://api\.marketstack\.com/.*"),
+        json=_marketstack_response(63),
+    )
+    await ingest_asset(db, nvda, MarketstackProvider("ms-key"))
+
+    # NVDA is now real (is_demo=False); all crypto assets are still fixture (is_demo=True).
+    resp = await client.get("/api/v1/correlation/NVDA")
+    assert resp.status_code == 200
+    assert resp.json()["demo"] is True
+
+
+@pytest.mark.asyncio
+async def test_seed_fixture_data_is_idempotent(db) -> None:
+    """Calling seed_fixture_data a second time must not change asset or price counts."""
+    asset_count_before = (await db.execute(select(func.count()).select_from(Asset))).scalar()
+    price_count_before = (await db.execute(select(func.count()).select_from(DailyPrice))).scalar()
+
+    await seed_fixture_data(db)
+
+    assert (await db.execute(select(func.count()).select_from(Asset))).scalar() == asset_count_before
+    assert (await db.execute(select(func.count()).select_from(DailyPrice))).scalar() == price_count_before
+
+
 # ── Real-mode end-to-end ─────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_real_mode_ingestion_then_correlation(client: AsyncClient, db, httpx_mock) -> None:
     """
-    Ingest NVDA (mocked Marketstack) and BTC (mocked CoinGecko), then verify
-    the correlation endpoint returns demo=False and non-empty scores.
+    Ingest NVDA + BTC with real providers (mocked HTTP), remove all other crypto
+    assets so the response only references those two, then verify demo=False.
     """
+    from sqlalchemy import delete as sa_delete
+
+    # Keep only BTC among crypto so every asset used in the response has real data.
+    await db.execute(
+        sa_delete(Asset).where(Asset.asset_type == "crypto", Asset.symbol != "BTC")
+    )
+    await db.commit()
+
     nvda = (await db.execute(select(Asset).where(Asset.symbol == "NVDA"))).scalar_one()
     btc = (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one()
 
-    # Only register mocks for the two assets we actually ingest
     httpx_mock.add_response(
         url=re.compile(r"https://api\.marketstack\.com/.*"),
         json=_marketstack_response(63),
@@ -197,18 +304,16 @@ async def test_real_mode_ingestion_then_correlation(client: AsyncClient, db, htt
         json=_coingecko_response(63),
     )
 
-    # Ingest NVDA (stock) and BTC (crypto) with mocked real providers
     await ingest_asset(db, nvda, MarketstackProvider("ms-key"))
     await ingest_asset(db, btc, CoinGeckoProvider("cg-key"))
 
-    # Assets endpoint must list assets
     assets_resp = await client.get("/api/v1/assets")
     assert assets_resp.status_code == 200
     symbols = {a["symbol"] for a in assets_resp.json()["assets"]}
     assert "NVDA" in symbols
     assert "BTC" in symbols
 
-    # Correlation endpoint must reflect real data (demo=False) for NVDA
+    # Both NVDA and BTC are now real → demo must be False.
     corr_resp = await client.get("/api/v1/correlation/NVDA")
     assert corr_resp.status_code == 200
     body = corr_resp.json()
