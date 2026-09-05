@@ -12,7 +12,7 @@ const PROJECT_ID = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID ?? "";
 
 // Initialise at module scope so every hook (useAppKit, useAccount, etc.)
 // can find the context regardless of when the component tree renders.
-const wagmiAdapter = new WagmiAdapter({ projectId: PROJECT_ID, networks: [base] });
+const wagmiAdapter = new WagmiAdapter({ projectId: PROJECT_ID, networks: [base], ssr: true });
 
 createAppKit({
   adapters: [wagmiAdapter],
@@ -22,7 +22,7 @@ createAppKit({
   metadata: {
     name: "DELTA",
     description: "Map the Market. Stock ↔ Crypto Exposure.",
-    url: "https://delta.example.com",
+    url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
     icons: [],
   },
   features: { analytics: false },
