@@ -11,8 +11,8 @@ DELTA bridges the stock market and crypto by mapping historical correlations thr
 | Milestone | Status |
 |-----------|--------|
 | 0 — Repository foundation | ✅ Complete |
-| 1 — Polished landing page | 🔄 In progress |
-| 2 — Real data backend | ⏳ Planned |
+| 1 — Polished landing page | ✅ Complete |
+| 2 — Real data backend | 🔄 In progress |
 | 3 — Exposure Score engine | ⏳ Planned |
 | 4 — Wallet and token gating | ⏳ Planned |
 | 5 — Portfolio exposure | ⏳ Planned |
@@ -103,14 +103,14 @@ delta/
 | `delta-web` | `web/` | `npm run build` | `npm start` |
 | `delta-api` | `api/` | `pip install -r requirements.txt` | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
 | `delta-postgres` | Railway managed | — | — |
-| `delta-refresh` | `api/` | — | `python -m app.jobs.refresh_market_data` (cron) |
+| `delta-refresh` | `api/` | — | `python -m app.ingestion.runner` (cron) |
 
 ### Deployment order
 
 1. Create Railway project and attach managed PostgreSQL
 2. Set all environment variables in Railway (not in git)
 3. Deploy `delta-api`, run Alembic migrations (`alembic upgrade head`), verify `/api/v1/health`
-4. Run first data refresh: `python -m app.jobs.refresh_market_data`
+4. Run first data ingestion: `python -m app.ingestion.runner`
 5. Deploy `delta-web` with `NEXT_PUBLIC_API_BASE_URL` pointing to the live API
 6. Configure Cloudflare DNS and enforce HTTPS
 7. Verify public, connected, locked, and unlocked states

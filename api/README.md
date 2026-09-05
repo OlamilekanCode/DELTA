@@ -1,44 +1,93 @@
 # DELTA API
 
-> **Milestone 0 placeholder.** Real FastAPI implementation begins in Milestone 2.
+FastAPI backend providing asset data and stock↔crypto correlation scores.
 
-## Current state
+## Stack
 
-The `api/` directory holds a minimal FastAPI application with a single `/api/v1/health` endpoint. This exists to:
-- Confirm the service structure before the frontend needs it
-- Provide a deployable Railway service configuration
-- Keep the repository runnable from day one
+- **FastAPI** with async lifespan, CORS middleware
+- **SQLAlchemy 2** async engine (`asyncpg` for PostgreSQL, `aiosqlite` for tests)
+- **Alembic** migrations (run `alembic upgrade head` before first start)
+- **NumPy** — Pearson correlation on aligned daily log returns
+- **httpx + tenacity** — CoinGecko and Marketstack providers with retry/backoff
+- **pytest + pytest-httpx** — async test suite with mocked HTTP providers
 
-## Setup (for development)
+## Local setup
 
 ```bash
 # Requires Python 3.12+
+cd api
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+
 pip install -r requirements.txt
+
+cp ../.env.example .env
+# Edit .env — set DATABASE_URL, API keys, etc.
+
+# Apply database migrations
+alembic upgrade head
+
+# Start the development server
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Health check: http://localhost:8000/api/v1/health
 
-## What's coming in Milestone 2
+## Running ingestion
 
-- PostgreSQL database (SQLAlchemy 2 async + Alembic migrations)
-- Marketstack provider integration (stock historical data)
-- CoinGecko provider integration (crypto historical data)
-- Asset seeding and price ingestion jobs
-- Real `/assets/*` and `/exposures/*` endpoints
-- Structured logging and error handling
+Seeds the asset catalogue and fetches price history from providers:
 
-## Dependencies
+```bash
+python -m app.ingestion.runner
+```
 
-Milestone 0–1: `fastapi` and `uvicorn` only.
+- `USE_DEMO_DATA=true` (default) — uses deterministic fixture data, no API keys required.
+- `USE_DEMO_DATA=false` — requires both `MARKETSTACK_API_KEY` (stocks) and `COINGECKO_API_KEY` (crypto). Exits with a clear error if either key is absent. Never mixes fixture and real providers in one run.
 
-Milestone 2+ will add: `sqlalchemy`, `alembic`, `asyncpg`, `httpx`, `pydantic`, `polars`, `numpy`, `scipy`, and others. Do not add these until Milestone 2.
+## Running tests
+
+```bash
+pytest tests/ -v
+```
+
+Tests use SQLite and `pytest-httpx` to mock all external HTTP calls. No API keys or network access required.
+
+## Linting
+
+```bash
+ruff check .
+```
+
+## Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/health` | Service health check |
+| `GET` | `/api/v1/assets` | List all assets (optional `?type=stock\|crypto`) |
+| `GET` | `/api/v1/correlation/{symbol}` | Correlation scores for a stock vs all crypto assets |
+
+### Correlation query params
+
+| Param | Default | Range | Description |
+|-------|---------|-------|-------------|
+| `days` | `90` | 60–90 | Lookback window in calendar days. Capped at 90 to match ingestion depth. |
+
+The `demo` field in the response reflects `is_demo` on the actual stored price rows — not just the `USE_DEMO_DATA` env var.
 
 ## Deployment (Railway)
 
-See `docs/architecture.md` and the root `README.md` for the full Railway deployment configuration.
+```bash
+# Build
+pip install -r requirements.txt
 
-Build command: `pip install -r requirements.txt`
-Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+# Migrate (run once after deploy)
+alembic upgrade head
+
+# Start
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+# Scheduled ingestion (Railway cron job)
+python -m app.ingestion.runner
+```
+
+Set all environment variables in Railway's environment panel — never commit `.env` files with real secrets.
