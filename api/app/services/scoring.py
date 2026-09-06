@@ -36,6 +36,9 @@ async def recompute_all_scores(db: AsyncSession) -> int:
     now = datetime.now(UTC)
     total = 0
 
+    # Clear all existing scores up front so re-runs are fully idempotent.
+    await db.execute(delete(StoredExposureScore))
+
     # Preload is_demo status for ALL relevant assets in one query.
     # An asset is considered demo if ANY of its stored price rows has is_demo=True.
     all_asset_ids = [s.id for s in stocks] + [c.id for c in crypto_assets]
@@ -66,11 +69,6 @@ async def recompute_all_scores(db: AsyncSession) -> int:
                 crypto_map[ca.symbol] = (ca.name, ca.category, cp)
 
         scores = compute_exposure_scores(stock_prices, crypto_map)
-
-        # Delete existing scores for this stock before reinserting
-        await db.execute(
-            delete(StoredExposureScore).where(StoredExposureScore.stock_id == stock.id)
-        )
 
         for s in scores:
             crypto_id = crypto_id_map.get(s.symbol)
