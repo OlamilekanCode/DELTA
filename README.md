@@ -122,16 +122,23 @@ Set all backend secrets in Render's environment panel.
 
 Set `DATABASE_URL` to the Neon connection string (use the pooled URL for the API, the direct URL for `alembic upgrade head`).
 
-### Scheduler — Cloudflare Cron
+### Scheduler — Cloudflare Worker + Cron
 
-Cloudflare Cron calls the protected HTTP endpoints on a schedule:
+Cloudflare Cron Triggers cannot set custom HTTP headers directly, so a small Worker (`cloudflare/`) acts as the dispatcher. It receives the cron event and forwards it to the Render API with `X-Cron-Secret`.
 
-| Schedule | Endpoint | Purpose |
-|----------|----------|---------|
-| Every 5 minutes | `POST /api/v1/cron/refresh-crypto-quotes` | Current crypto prices |
-| Tuesday + Friday | `POST /api/v1/cron/refresh-history-and-scores` | OHLCV history + score recompute |
+```bash
+cd cloudflare
+npx wrangler secret put API_BASE_URL   # https://your-api.onrender.com
+npx wrangler secret put CRON_SECRET    # must match CRON_SECRET on Render
+npx wrangler deploy
+```
 
-Each request must carry `X-Cron-Secret: <CRON_SECRET>`. Set the same value in both the Render environment and the Cloudflare Cron HTTP trigger header.
+| Schedule (wrangler.toml) | Forwarded to | Purpose |
+|--------------------------|--------------|---------|
+| `*/5 * * * *` | `POST /api/v1/cron/refresh-crypto-quotes` | Current crypto prices |
+| `0 0 * * 2,5` | `POST /api/v1/cron/refresh-history-and-scores` | OHLCV history + score recompute |
+
+Both endpoints share a single advisory lock — they cannot overlap even if both crons fire at the same time.
 
 ---
 

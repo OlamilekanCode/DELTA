@@ -1,0 +1,10 @@
+name            = "delta-cron"
+main            = "src/worker.js"
+compatibility_date = "2024-09-23"
+
+# Cron schedules — both fire the same Worker; routing is done inside worker.js
+[triggers]
+crons = [
+  "*/5 * * * *",    # every 5 minutes → refresh-crypto-quotes
+  "0 0 * * 2,5",   # midnight UTC, Tuesday + Friday → refresh-history-and-scores
+]

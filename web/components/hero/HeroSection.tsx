@@ -204,7 +204,7 @@ export default function HeroSection() {
 
             {/* Disclaimer */}
             <motion.p
-              className="mt-7 font-mono text-[11px] uppercase tracking-widest text-muted/60"
+              className="mt-7 font-mono text-[11px] uppercase tracking-widest text-muted"
               style={{ textShadow: "0 0 12px rgba(109,74,255,0.5), 0 1px 3px rgba(0,0,0,0.8)" }}
               initial={reduced ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}

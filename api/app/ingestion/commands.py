@@ -98,8 +98,7 @@ async def cmd_refresh_crypto_quotes() -> None:
         return
 
     if not settings.coingecko_api_key:
-        log.error("COINGECKO_API_KEY required")
-        sys.exit(1)
+        raise RuntimeError("COINGECKO_API_KEY is required when USE_DEMO_DATA=false")
 
     cg = CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
 
@@ -151,8 +150,7 @@ async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> None:
         return
 
     if not settings.marketstack_api_key:
-        log.error("MARKETSTACK_API_KEY required")
-        sys.exit(1)
+        raise RuntimeError("MARKETSTACK_API_KEY is required when USE_DEMO_DATA=false")
 
     if skip_weekends and date.today().weekday() >= 5:
         log.info("Weekend — skipping stock EOD refresh")
@@ -179,8 +177,7 @@ async def cmd_refresh_crypto_history() -> None:
         return
 
     if not settings.coingecko_api_key:
-        log.error("COINGECKO_API_KEY required")
-        sys.exit(1)
+        raise RuntimeError("COINGECKO_API_KEY is required when USE_DEMO_DATA=false")
 
     cg = CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
     async with get_factory()() as db:

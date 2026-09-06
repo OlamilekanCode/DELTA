@@ -106,7 +106,7 @@ export default function FinalCTASection() {
 
         {/* Disclaimer row */}
         <motion.p
-          className="mt-10 font-mono text-xs uppercase tracking-widest text-white/25 sm:mt-16 lg:mt-20"
+          className="mt-10 font-mono text-xs uppercase tracking-widest text-muted sm:mt-16 lg:mt-20"
           initial={reduced ? false : { opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: true }}

@@ -71,7 +71,7 @@ export default function DeltaUtilitySection() {
             transition={{ duration: 0.6, delay: 0.1 }}
           >
             <p className="max-w-sm font-mono text-sm leading-relaxed text-muted">
-              Hold $DELTA to unlock advanced analytics. Free users see the public NVDA example; token holders get the full platform.
+              Hold $DELTA to unlock advanced analytics when they launch. Free users can explore the public Exposure Scores and Graph today.
             </p>
           </motion.div>
         </div>

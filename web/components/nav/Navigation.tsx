@@ -5,10 +5,10 @@ import Link from "next/link";
 import ConnectWalletButton from "@/components/wallet/ConnectWalletButton";
 import DeltaLogo from "@/components/shared/DeltaLogo";
 
-const navLinks: { href: string; label: string; soon?: boolean }[] = [
+const navLinks: { href: string; label: string }[] = [
   { href: "/explore",     label: "Explore" },
   { href: "/graph/NVDA",  label: "Exposure Graph" },
-  { href: "/portfolio",   label: "Portfolio", soon: true },
+  { href: "/portfolio",   label: "Portfolio" },
   { href: "/methodology", label: "Methodology" },
 ];
 
@@ -40,7 +40,7 @@ export default function Navigation() {
     <>
       <header
         role="banner"
-        className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 mb-8 ${
+        className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 mb-10 ${
           scrolled
             ? "border-b border-white/[0.09] bg-bg/90 backdrop-blur-md"
             : "bg-transparent"
@@ -55,10 +55,10 @@ export default function Navigation() {
           <Link
             href="/"
             className="flex items-center gap-2 font-heading text-2xl font-bold text-violet transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet"
-            aria-label="DELTA home"
+            aria-label="Synthetic Exposure home"
           >
             <DeltaLogo size={24} />
-            DELTA
+            Synthetic Exposure
           </Link>
 
           {/* Desktop links */}
@@ -67,14 +67,9 @@ export default function Navigation() {
               <li key={l.href}>
                 <Link
                   href={l.href}
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-muted transition-colors hover:text-text focus-visible:text-text"
+                  className="text-sm font-medium text-muted transition-colors hover:text-text focus-visible:text-text"
                 >
                   {l.label}
-                  {l.soon && (
-                    <span className="rounded-full bg-amber/15 px-1.5 py-0.5 font-mono text-[9px] font-medium leading-none text-amber">
-                      soon
-                    </span>
-                  )}
                 </Link>
               </li>
             ))}
@@ -130,14 +125,9 @@ export default function Navigation() {
                   <Link
                     href={l.href}
                     onClick={closeMenu}
-                    className="flex w-full items-center gap-2 rounded-lg px-4 py-3 text-base font-medium text-muted transition-colors hover:bg-panel2 hover:text-text focus-visible:bg-panel2 focus-visible:text-text focus-visible:outline-none"
+                    className="flex w-full items-center rounded-lg px-4 py-3 text-base font-medium text-muted transition-colors hover:bg-panel2 hover:text-text focus-visible:bg-panel2 focus-visible:text-text focus-visible:outline-none"
                   >
                     {l.label}
-                    {l.soon && (
-                      <span className="rounded-full bg-amber/15 px-1.5 py-0.5 font-mono text-[9px] font-medium leading-none text-amber">
-                        soon
-                      </span>
-                    )}
                   </Link>
                 </li>
               ))}
