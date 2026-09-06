@@ -13,8 +13,17 @@ const NVDAChart = dynamic(() => import("./NVDAChart"), {
 });
 
 const CATEGORY_COLORS: Record<string, { text: string; bg: string; border: string }> = {
-  "BTC Ecosystem": { text: "#F4C95D", bg: "rgba(244,201,93,0.08)", border: "rgba(244,201,93,0.25)" },
-  "DeFi":          { text: "#3D7BFF", bg: "rgba(61,123,255,0.08)", border: "rgba(61,123,255,0.25)" },
+  "Layer 1":       { text: "#F4C95D", bg: "rgba(244,201,93,0.08)",  border: "rgba(244,201,93,0.25)" },
+  "Layer 2":       { text: "#3D7BFF", bg: "rgba(61,123,255,0.08)",  border: "rgba(61,123,255,0.25)" },
+  "DeFi":          { text: "#9B7BFF", bg: "rgba(155,123,255,0.08)", border: "rgba(155,123,255,0.25)" },
+  "Oracle/Data":   { text: "#38BDF8", bg: "rgba(56,189,248,0.08)",  border: "rgba(56,189,248,0.25)" },
+  "AI/Compute":    { text: "#71F79F", bg: "rgba(113,247,159,0.08)", border: "rgba(113,247,159,0.25)" },
+  "Storage":       { text: "#FB923C", bg: "rgba(251,146,60,0.08)",  border: "rgba(251,146,60,0.25)" },
+  "Memecoin":      { text: "#F472B6", bg: "rgba(244,114,182,0.08)", border: "rgba(244,114,182,0.25)" },
+  "Technology":    { text: "#9B7BFF", bg: "rgba(155,123,255,0.08)", border: "rgba(155,123,255,0.25)" },
+  "Finance":       { text: "#2DD4BF", bg: "rgba(45,212,191,0.08)",  border: "rgba(45,212,191,0.25)" },
+  // Legacy keys kept for backward compatibility
+  "BTC Ecosystem": { text: "#F4C95D", bg: "rgba(244,201,93,0.08)",  border: "rgba(244,201,93,0.25)" },
   "AI":            { text: "#71F79F", bg: "rgba(113,247,159,0.08)", border: "rgba(113,247,159,0.25)" },
 };
 

@@ -1,36 +1,46 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import ComingSoonShell from "@/components/shared/ComingSoonShell";
+import { fetchAssets } from "@/lib/api";
+import type { ApiAsset } from "@/lib/types";
+import AssetGrid from "@/components/explore/AssetGrid";
 
 export const metadata: Metadata = {
   title: "Explore — DELTA",
   description: "Search supported stocks and discover connected crypto assets by Exposure Score.",
 };
 
-const icon = (
-  <svg className="size-9" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
-    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-  </svg>
-);
+export default async function ExplorePage() {
+  let assets: ApiAsset[] = [];
 
-export default function ExplorePage() {
+  try {
+    const data = await fetchAssets();
+    assets = data.assets;
+  } catch {
+    // API unavailable — render empty grid with error state
+  }
+
   return (
-    <>
-      <ComingSoonShell
-        title="Explore Stocks & Crypto"
-        description="Full asset search and discovery across stocks and crypto is on the way. In the meantime, explore the free NVDA example on the home page."
-        icon={icon}
-        backHref="/asset/NVDA"
-        backLabel="See the NVDA example"
-      />
-      <div className="mx-auto max-w-7xl px-6 pb-16 lg:px-8">
-        <p className="text-center text-sm text-muted">
-          Or{" "}
-          <Link href="/" className="text-violet-light underline underline-offset-4 hover:text-violet">
-            return to the home page
-          </Link>
+    <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+      <div className="mb-8">
+        <p className="mb-2 font-mono text-xs font-medium uppercase tracking-[0.25em] text-violet">
+          Market Explorer
+        </p>
+        <h1 className="font-heading text-3xl font-bold text-text sm:text-4xl">
+          Stocks &amp; Crypto
+        </h1>
+        <p className="mt-2 max-w-xl text-sm text-muted">
+          {assets.length > 0
+            ? `${assets.filter((a) => a.asset_type === "stock").length} stocks · ${assets.filter((a) => a.asset_type === "crypto").length} crypto assets · Click any asset for detailed charts and Exposure Scores.`
+            : "Data unavailable — the API may be starting up. Try refreshing in a moment."}
         </p>
       </div>
-    </>
+
+      {assets.length > 0 ? (
+        <AssetGrid assets={assets} />
+      ) : (
+        <div className="flex min-h-64 items-center justify-center rounded-2xl border border-white/[0.05]">
+          <p className="font-mono text-sm text-muted">Unable to load assets.</p>
+        </div>
+      )}
+    </div>
   );
 }

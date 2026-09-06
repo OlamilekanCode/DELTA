@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 
@@ -7,6 +8,16 @@ class PriceRow:
     date: str    # "YYYY-MM-DD"
     close: float
     volume: float | None = None
+
+
+@dataclass
+class QuoteRow:
+    symbol: str
+    price_usd: float
+    market_cap_usd: float | None
+    volume_24h_usd: float | None
+    change_24h_pct: float | None
+    ts: datetime
 
 
 @runtime_checkable

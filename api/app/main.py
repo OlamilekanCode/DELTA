@@ -4,9 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import app.models  # noqa: F401 — register all ORM models with Base
 from app.config import get_settings
 from app.database import Base, get_engine, init_db
-from app.routers import assets, correlation, health
+from app.routers import assets, correlation, exposures, graphs, health
 
 
 @asynccontextmanager
@@ -33,22 +34,24 @@ def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
         title="DELTA API",
-        version="2.0.0",
+        version="3.0.0",
         description="Stock ↔ Crypto Exposure Layer",
         lifespan=lifespan,
     )
 
-    origins = settings.parsed_cors_origins
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=origins,
-        allow_methods=["GET", "OPTIONS"],
+        allow_origins=settings.parsed_cors_origins,
+        allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
+        allow_credentials=True,
     )
 
     application.include_router(health.router, prefix="/api/v1")
     application.include_router(assets.router, prefix="/api/v1")
     application.include_router(correlation.router, prefix="/api/v1")
+    application.include_router(exposures.router, prefix="/api/v1")
+    application.include_router(graphs.router, prefix="/api/v1")
 
     return application
 
