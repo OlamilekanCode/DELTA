@@ -149,7 +149,7 @@ export default function HeroSection() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.15 }}
             >
-              DELTA reveals how any stock moves with the crypto market — using 90-day historical correlation across thousands of aligned observations.
+              Synthetic Exposure reveals how any stock moves with the crypto market — using 90-day historical correlation across thousands of aligned observations.
             </motion.p>
 
             {/* Bullets */}

@@ -12,7 +12,7 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { symbol } = await params;
   return {
-    title: `${symbol.toUpperCase()} Exposure Graph — DELTA`,
+    title: `${symbol.toUpperCase()} Exposure Graph — Synthetic Exposure`,
     description: `Interactive crypto Exposure Graph for ${symbol.toUpperCase()} — zoom, pan, score filtering.`,
   };
 }

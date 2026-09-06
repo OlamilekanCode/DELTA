@@ -63,7 +63,7 @@ export default function PortfolioPreview() {
               </span>
             </h2>
             <p className="mt-6 max-w-sm font-mono text-sm leading-relaxed text-muted">
-              Connect a wallet and DELTA reads your public on-chain holdings — read-only, no transaction required. See your category exposure and weighted stock correlation score.
+              Connect a wallet and Synthetic Exposure reads your public on-chain holdings — read-only, no transaction required. See your category exposure and weighted stock correlation score.
             </p>
 
             {/* Weighted score callout */}

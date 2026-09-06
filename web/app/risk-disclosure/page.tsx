@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import ComingSoonShell from "@/components/shared/ComingSoonShell";
 
 export const metadata: Metadata = {
-  title: "Risk Disclosure — DELTA",
+  title: "Risk Disclosure — Synthetic Exposure",
 };
 
 const icon = (
@@ -15,7 +15,7 @@ export default function RiskDisclosurePage() {
   return (
     <ComingSoonShell
       title="Risk Disclosure"
-      description="Risk Disclosure will be available before the public launch of DELTA. DELTA Exposure Scores are for informational purposes only and do not constitute investment advice."
+      description="Risk Disclosure will be available before the public launch of Synthetic Exposure. Synthetic Exposure Scores are for informational purposes only and do not constitute investment advice."
       icon={icon}
       backHref="/methodology"
       backLabel="Read the methodology"

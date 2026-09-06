@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Methodology — DELTA",
-  description: "How DELTA calculates Exposure Scores using 90-day Pearson correlation of daily log returns.",
+  title: "Methodology — Synthetic Exposure",
+  description: "How Synthetic Exposure calculates Exposure Scores using 90-day Pearson correlation of daily log returns.",
 };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -38,7 +38,7 @@ export default function MethodologyPage() {
           Methodology
         </p>
         <h1 className="font-heading text-4xl font-bold text-text sm:text-5xl">
-          How DELTA calculates Exposure Scores
+          How Synthetic Exposure calculates Exposure Scores
         </h1>
         <p className="mt-4 text-lg text-muted">
           Model version: <span className="font-mono text-violet-light">pearson_v1</span>
@@ -162,7 +162,7 @@ export default function MethodologyPage() {
       <div className="rounded-2xl border border-danger/20 bg-danger/5 p-6">
         <h2 className="mb-3 font-heading text-lg font-semibold text-danger">Disclaimer</h2>
         <p className="text-sm leading-relaxed text-muted">
-          DELTA Exposure Scores are for informational and analytical purposes only. They do not
+          Synthetic Exposure Exposure Scores are for informational and analytical purposes only. They do not
           constitute investment advice, a recommendation to buy or sell any asset, or a prediction of
           future performance. Historical correlation does not guarantee future correlation. Always
           conduct your own research before making any financial decision.

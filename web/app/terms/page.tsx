@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import ComingSoonShell from "@/components/shared/ComingSoonShell";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — DELTA",
+  title: "Terms of Service — Synthetic Exposure",
 };
 
 const icon = (
@@ -15,7 +15,7 @@ export default function TermsPage() {
   return (
     <ComingSoonShell
       title="Terms of Service"
-      description="Terms of Service will be available before the public launch of DELTA. Please check back soon."
+      description="Terms of Service will be available before the public launch of Synthetic Exposure. Please check back soon."
       icon={icon}
       backHref="/"
       backLabel="Back to home"

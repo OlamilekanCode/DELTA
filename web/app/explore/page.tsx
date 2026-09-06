@@ -4,7 +4,7 @@ import type { ApiAsset } from "@/lib/types";
 import AssetGrid from "@/components/explore/AssetGrid";
 
 export const metadata: Metadata = {
-  title: "Explore — DELTA",
+  title: "Explore — Synthetic Exposure",
   description: "Search supported stocks and discover connected crypto assets by Exposure Score.",
 };
 

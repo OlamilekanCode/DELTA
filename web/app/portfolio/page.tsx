@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import PortfolioGate from "@/components/wallet/PortfolioGate";
 
 export const metadata: Metadata = {
-  title: "Portfolio Exposure — DELTA",
+  title: "Portfolio Exposure — Synthetic Exposure",
   description: "Read-only portfolio exposure analysis for $DELTA token holders.",
 };
 

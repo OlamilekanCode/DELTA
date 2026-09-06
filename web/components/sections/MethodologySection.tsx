@@ -15,7 +15,7 @@ const cards = [
   {
     tag: "02",
     title: "Correlation\ncan change",
-    body: "Market regime shifts, macroeconomic events, and sector rotations can rapidly alter correlations. DELTA recalculates scores after each market close.",
+    body: "Market regime shifts, macroeconomic events, and sector rotations can rapidly alter correlations. Synthetic Exposure recalculates scores after each market close.",
     color: "#3D7BFF",
     bg: "rgba(61,123,255,0.05)",
     border: "rgba(61,123,255,0.2)",
@@ -23,7 +23,7 @@ const cards = [
   {
     tag: "03",
     title: "Not\ninvestment advice",
-    body: "DELTA is an analytical tool. Nothing on this platform constitutes financial advice, a recommendation to buy or sell any asset, or a forecast of returns.",
+    body: "Synthetic Exposure is an analytical tool. Nothing on this platform constitutes financial advice, a recommendation to buy or sell any asset, or a forecast of returns.",
     color: "#FF5D73",
     bg: "rgba(255,93,115,0.05)",
     border: "rgba(255,93,115,0.2)",

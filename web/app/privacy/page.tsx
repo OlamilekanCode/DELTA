@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import ComingSoonShell from "@/components/shared/ComingSoonShell";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — DELTA",
+  title: "Privacy Policy — Synthetic Exposure",
 };
 
 const icon = (
@@ -15,7 +15,7 @@ export default function PrivacyPage() {
   return (
     <ComingSoonShell
       title="Privacy Policy"
-      description="Privacy Policy will be available before the public launch of DELTA. Please check back soon."
+      description="Privacy Policy will be available before the public launch of Synthetic Exposure. Please check back soon."
       icon={icon}
       backHref="/"
       backLabel="Back to home"

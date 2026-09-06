@@ -20,7 +20,7 @@ createAppKit({
   networks: [base],
   defaultNetwork: base,
   metadata: {
-    name: "DELTA",
+    name: "Synthetic Exposure",
     description: "Map the Market. Stock ↔ Crypto Exposure.",
     url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
     icons: [],

@@ -75,7 +75,7 @@ export default function HowItWorksSection() {
             transition={{ duration: 0.6, delay: 0.15 }}
           >
             <p className="max-w-sm font-mono text-sm leading-relaxed text-muted">
-              DELTA runs historical analysis between any stock and the full crypto market.
+              Synthetic Exposure runs historical analysis between any stock and the full crypto market.
               No wallet required. No sign-up. Just data.
             </p>
           </motion.div>

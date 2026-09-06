@@ -47,7 +47,7 @@ export default function HeroGraph() {
     <div
       className="w-full select-none"
       style={{ maxWidth: 600 }}
-      aria-label="DELTA Analysis Terminal — interactive exposure graph"
+      aria-label="Synthetic Exposure Analysis Terminal — interactive exposure graph"
     >
       {/* Terminal window */}
       <div
@@ -69,7 +69,7 @@ export default function HeroGraph() {
             <div className="size-3 rounded-full" style={{ background: "#71F79F", opacity: 0.8 }} />
           </div>
           <span className="flex-1 text-center font-mono text-xs uppercase tracking-[0.18em] text-muted">
-            DELTA ANALYSIS ENGINE
+            Synthetic Exposure ANALYSIS ENGINE
           </span>
           <div className="flex items-center gap-1.5">
             <motion.div

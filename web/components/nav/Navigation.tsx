@@ -40,7 +40,7 @@ export default function Navigation() {
     <>
       <header
         role="banner"
-        className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ${
+        className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 mb-8 ${
           scrolled
             ? "border-b border-white/[0.09] bg-bg/90 backdrop-blur-md"
             : "bg-transparent"

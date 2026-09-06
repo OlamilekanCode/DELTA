@@ -20,7 +20,7 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { symbol } = await params;
   return {
-    title: `${symbol.toUpperCase()} — DELTA`,
+    title: `${symbol.toUpperCase()} — Synthetic Exposure`,
     description: `Price history, Exposure Scores and methodology for ${symbol.toUpperCase()}.`,
   };
 }
