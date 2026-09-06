@@ -1,22 +1,19 @@
 # DELTA
 
-**Map the Market.** See how stocks and crypto move together.
-
-DELTA bridges the stock market and crypto by mapping historical correlations through an interactive Exposure Graph and a 0–1 Exposure Score. The `$DELTA` utility token unlocks advanced graph depth, portfolio exposure, and detailed score breakdowns.
+DELTA maps historical correlations between stocks and crypto assets through an interactive Exposure Graph and a 0–1 Exposure Score. The `$DELTA` utility token gates advanced features: deeper graph analysis, portfolio exposure breakdown, and detailed score history.
 
 ---
 
-## Status
+## Project structure
 
-| Milestone | Status |
-|-----------|--------|
-| 0 — Repository foundation | ✅ Complete |
-| 1 — Polished landing page | ✅ Complete |
-| 2 — Real data backend | 🔄 In progress |
-| 3 — Exposure Score engine | ⏳ Planned |
-| 4 — Wallet and token gating | ⏳ Planned |
-| 5 — Portfolio exposure | ⏳ Planned |
-| 6 — Production readiness | ⏳ Planned |
+```
+delta/
+├── web/              Next.js 16 App Router frontend
+├── api/              FastAPI backend (Python 3.12+)
+├── docs/             Architecture, methodology, API reference
+├── .env.example      Template for web/.env.local and api/.env
+└── README.md
+```
 
 ---
 
@@ -25,99 +22,118 @@ DELTA bridges the stock market and crypto by mapping historical correlations thr
 ### Prerequisites
 
 - Node.js 20+ and npm
-- Python 3.12+ (for api/ — required from Milestone 2)
+- Python 3.12+
 
-### Frontend (web/)
+### Frontend
 
 ```bash
-# 1. Install dependencies
 cd web
 npm install
-
-# 2. Copy and configure environment variables
-cp ../.env.example .env.local
-# Edit .env.local — NEXT_PUBLIC_API_BASE_URL defaults to http://localhost:8000
-
-# 3. Start the development server
+cp ../.env.example .env.local   # set NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-#### Other frontend commands
-
 ```bash
-npm run build         # Production build
-npm start             # Serve the production build
-npm run lint          # Run ESLint (note: not next lint — removed in Next.js 16)
-npx tsc --noEmit      # TypeScript type-check
+npm run build         # production build
+npm run lint          # ESLint
+npx tsc --noEmit      # type-check
 ```
 
-### Backend API (api/) — Milestone 2+
+### Backend
 
 ```bash
-# 1. Create and activate a virtual environment
 cd api
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
-
-# 2. Install dependencies
 pip install -r requirements.txt
-
-# 3. Copy and configure environment variables
-cp ../.env.example .env
-# Edit .env with real DATABASE_URL, API keys, etc.
-
-# 4. Start the development server
+cp ../.env.example .env        # edit with DATABASE_URL and API keys
+alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Health check: [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
 
+With `USE_DEMO_DATA=true` (the default), the API seeds deterministic fixture data on startup — no API keys or external network required.
+
+### Data ingestion
+
+```bash
+# Seed or backfill 90 days of price history
+python -m app.ingestion.commands backfill
+
+# Refresh current crypto prices (CoinGecko /coins/markets — 1 request for all assets)
+python -m app.ingestion.commands refresh-crypto-quotes
+
+# Refresh stock EOD prices (weekdays only)
+python -m app.ingestion.commands refresh-stock-eod
+
+# Recompute and store all Exposure Scores
+python -m app.ingestion.commands recompute-scores
+```
+
 ---
 
-## Project structure
+## Environment variables
 
-```
-delta/
-├── web/              Next.js App Router frontend
-├── api/              FastAPI backend (active from Milestone 2)
-├── docs/
-│   ├── architecture.md
-│   ├── methodology.md
-│   └── api.md
-├── .env.example      Copy to web/.env.local and api/.env
-└── README.md
-```
+All variables are documented in `.env.example`. Key values:
+
+| Variable | Required for |
+|----------|-------------|
+| `DATABASE_URL` | Backend (PostgreSQL in production, SQLite by default) |
+| `MARKETSTACK_API_KEY` | Stock price data (`USE_DEMO_DATA=false`) |
+| `COINGECKO_API_KEY` | Crypto price data (`USE_DEMO_DATA=false`) |
+| `COINGECKO_API_TYPE` | `demo` (default) or `pro` |
+| `NEXT_PUBLIC_API_BASE_URL` | Frontend → backend URL |
+| `NEXT_PUBLIC_REOWN_PROJECT_ID` | Wallet connection (AppKit) |
+| `NEXT_PUBLIC_DELTA_TOKEN_ADDRESS` | `$DELTA` token contract address |
+| `NEXT_PUBLIC_DELTA_MIN_BALANCE` | Minimum balance for portfolio access (raw units) |
+| `NEXT_PUBLIC_DEX_BUY_URL` | Link to buy `$DELTA` |
 
 ---
 
-## Railway deployment (Milestone 6)
+## Deployment
 
-> Do not deploy to production until the owner supplies: final domain, `$DELTA` token contract address, minimum balance, DEX pool URL, and all required secrets.
+### Frontend (Vercel)
 
-### Services
+Set `NEXT_PUBLIC_API_BASE_URL` to your backend URL in the Vercel project settings. All other `NEXT_PUBLIC_*` variables must also be set there.
 
-| Service | Root | Build | Start |
-|---------|------|-------|-------|
-| `delta-web` | `web/` | `npm run build` | `npm start` |
-| `delta-api` | `api/` | `pip install -r requirements.txt` | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
-| `delta-postgres` | Railway managed | — | — |
-| `delta-refresh` | `api/` | — | `python -m app.ingestion.runner` (cron) |
+```bash
+# Build command
+npm run build
 
-### Deployment order
+# Output directory
+.next
+```
 
-1. Create Railway project and attach managed PostgreSQL
-2. Set all environment variables in Railway (not in git)
-3. Deploy `delta-api`, run Alembic migrations (`alembic upgrade head`), verify `/api/v1/health`
-4. Run first data ingestion: `python -m app.ingestion.runner`
-5. Deploy `delta-web` with `NEXT_PUBLIC_API_BASE_URL` pointing to the live API
-6. Configure Cloudflare DNS and enforce HTTPS
-7. Verify public, connected, locked, and unlocked states
+### Backend (Railway)
 
-### Environment variables
+```bash
+# Build
+pip install -r requirements.txt
 
-All required environment variables are documented in `.env.example`. Set them in Railway's environment variable panel — never commit `.env` files with real values.
+# Migrate (run once after each deploy)
+alembic upgrade head
+
+# Start
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+Scheduled refresh via Railway cron:
+
+```bash
+# Every hour — crypto quotes
+python -m app.ingestion.commands refresh-crypto-quotes
+
+# Daily (weekdays) — stock EOD
+python -m app.ingestion.commands refresh-stock-eod
+
+# Daily — recompute scores
+python -m app.ingestion.commands recompute-scores
+```
+
+Set all secrets in Railway's environment panel. Never commit `.env` files with real values.
 
 ---
 
@@ -125,18 +141,28 @@ All required environment variables are documented in `.env.example`. Set them in
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js (App Router), TypeScript, Tailwind CSS |
+| Frontend | Next.js 16 (App Router), TypeScript, Tailwind CSS |
 | Animation | Framer Motion |
-| Graph | @xyflow/react (graph routes only) |
-| Charts | TradingView Lightweight Charts (dynamic import) |
-| Wallet | Reown AppKit, Wagmi, Viem (Milestone 4) |
+| Graph | @xyflow/react |
+| Charts | lightweight-charts v5 (dynamic import) |
+| Wallet | Reown AppKit, Wagmi, Viem |
 | Backend | Python FastAPI, Pydantic v2 |
-| Database | PostgreSQL, SQLAlchemy 2, Alembic |
-| Hosting | Railway (web + api + db + cron) |
-| DNS/SSL | Cloudflare |
+| Database | PostgreSQL, SQLAlchemy 2 async, Alembic |
+| Providers | CoinGecko (crypto), Marketstack (stocks) |
+| Hosting | Railway (API + DB + cron), Vercel (frontend) |
+
+---
+
+## Upcoming features
+
+- Portfolio exposure breakdown (requires `$DELTA` balance)
+- Real-time score updates as intraday prices move
+- Live price feeds across all 38 assets
+- Expanded asset universe (additional chains and equity sectors)
+- Real-time alerts on significant score changes
 
 ---
 
 ## Disclaimer
 
-DELTA Exposure Scores are for informational purposes only and do not constitute investment advice. See `/methodology` for the complete explanation. DELTA does not custody assets, operate an exchange, or guarantee equivalent asset performance.
+DELTA Exposure Scores are for informational purposes only and do not constitute investment advice. See `/methodology` for the full methodology. DELTA does not custody assets, operate an exchange, or guarantee equivalent asset performance.

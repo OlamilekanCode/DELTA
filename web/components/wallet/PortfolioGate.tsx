@@ -37,7 +37,6 @@ export default function PortfolioGate() {
         <p className="max-w-sm font-mono text-sm leading-relaxed text-muted">
           Portfolio exposure analysis is available to $DELTA token holders. Acquire $DELTA to unlock access.
         </p>
-        {/* UX-only gate — no backend verification in this milestone */}
         <p className="font-mono text-xs text-muted/50">
           Analytical tool · Not financial advice
         </p>
