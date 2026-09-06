@@ -1,6 +1,15 @@
 import asyncio
 import os
 from logging.config import fileConfig
+from pathlib import Path
+
+# Load .env so DATABASE_URL is available when running alembic from the CLI
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).parent.parent / ".env", override=False)
+except ImportError:
+    pass  # python-dotenv not installed; rely on environment variables
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -15,7 +24,13 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Read DATABASE_URL from environment; env.py owns this, not alembic.ini
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dev.db")
+_raw_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dev.db")
+# Normalise plain postgresql:// / postgres:// to use the asyncpg driver
+if _raw_url.startswith("postgres://"):
+    _raw_url = _raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif _raw_url.startswith("postgresql://"):
+    _raw_url = _raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+DATABASE_URL = _raw_url
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 # Import metadata here so Alembic can detect schema changes

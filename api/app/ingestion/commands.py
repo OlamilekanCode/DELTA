@@ -78,16 +78,18 @@ async def cmd_backfill() -> None:
 
     async with get_factory()() as db:
         await seed_asset_catalogue(db)
-        result = await db.execute(select(Asset))
-        assets = list(result.scalars().all())
-        for asset in assets:
-            provider = cg if asset.asset_type == "crypto" else ms
-            try:
-                n = await ingest_asset(db, asset, provider)
-                log.info("%s: %d rows upserted", asset.symbol, n)
-            except Exception:
-                log.exception("Failed to ingest %s — skipping, existing data preserved", asset.symbol)
-                await db.rollback()
+        result = await db.execute(select(Asset.id, Asset.symbol, Asset.asset_type))
+        asset_rows = result.all()  # plain tuples — safe after session close
+
+    for asset_id, symbol, asset_type in asset_rows:
+        provider = cg if asset_type == "crypto" else ms
+        try:
+            async with get_factory()() as asset_db:
+                asset = await asset_db.get(Asset, asset_id)
+                n = await ingest_asset(asset_db, asset, provider)
+                log.info("%s: %d rows upserted", symbol, n)
+        except Exception:
+            log.exception("Failed to ingest %s — skipping, existing data preserved", symbol)
 
 
 async def cmd_refresh_crypto_quotes() -> None:
@@ -158,15 +160,19 @@ async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> None:
 
     ms = MarketstackProvider(settings.marketstack_api_key)
     async with get_factory()() as db:
-        result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
-        stocks = result.scalars().all()
-        for stock in stocks:
-            try:
-                n = await ingest_asset(db, stock, ms)
-                log.info("%s: %d rows upserted", stock.symbol, n)
-            except Exception:
-                log.exception("Failed to refresh %s — skipping, existing data preserved", stock.symbol)
-                await db.rollback()
+        result = await db.execute(
+            select(Asset.id, Asset.symbol).where(Asset.asset_type == "stock")
+        )
+        stock_rows = result.all()
+
+    for asset_id, symbol in stock_rows:
+        try:
+            async with get_factory()() as asset_db:
+                asset = await asset_db.get(Asset, asset_id)
+                n = await ingest_asset(asset_db, asset, ms)
+                log.info("%s: %d rows upserted", symbol, n)
+        except Exception:
+            log.exception("Failed to refresh %s — skipping, existing data preserved", symbol)
 
 
 async def cmd_refresh_crypto_history() -> None:
@@ -181,15 +187,19 @@ async def cmd_refresh_crypto_history() -> None:
 
     cg = CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
     async with get_factory()() as db:
-        result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
-        crypto_assets = result.scalars().all()
-        for asset in crypto_assets:
-            try:
-                n = await ingest_asset(db, asset, cg)
-                log.info("%s: %d rows upserted", asset.symbol, n)
-            except Exception:
-                log.exception("Failed to refresh %s — skipping, existing data preserved", asset.symbol)
-                await db.rollback()
+        result = await db.execute(
+            select(Asset.id, Asset.symbol).where(Asset.asset_type == "crypto")
+        )
+        crypto_rows = result.all()
+
+    for asset_id, symbol in crypto_rows:
+        try:
+            async with get_factory()() as asset_db:
+                asset = await asset_db.get(Asset, asset_id)
+                n = await ingest_asset(asset_db, asset, cg)
+                log.info("%s: %d rows upserted", symbol, n)
+        except Exception:
+            log.exception("Failed to refresh %s — skipping, existing data preserved", symbol)
 
 
 async def cmd_recompute_scores() -> None:

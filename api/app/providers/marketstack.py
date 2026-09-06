@@ -45,8 +45,11 @@ class MarketstackProvider:
         rows: list[PriceRow] = []
         for item in data:
             raw_date: str = item.get("date", "")
-            close: float = float(item.get("close", 0))
-            if not raw_date or close <= 0:
+            raw_close = item.get("close")
+            if not raw_date or raw_close is None:
+                continue
+            close: float = float(raw_close)
+            if close <= 0:
                 continue
             rows.append(PriceRow(date=raw_date[:10], close=close))
 
@@ -91,8 +94,11 @@ class MarketstackProvider:
         for item in r.json().get("data", []):
             sym = item.get("symbol", "").upper()
             raw_date = item.get("date", "")
-            close = float(item.get("close", 0))
-            if sym in by_symbol and raw_date and close > 0:
+            raw_close = item.get("close")
+            if not (sym in by_symbol and raw_date and raw_close is not None):
+                continue
+            close = float(raw_close)
+            if close > 0:
                 by_symbol[sym].append(PriceRow(date=raw_date[:10], close=close))
 
         return {sym: rows[-days:] for sym, rows in by_symbol.items()}

@@ -26,7 +26,17 @@ class _State:
 _state = _State()
 
 
+def _normalise_url(url: str) -> str:
+    """Ensure async drivers are used regardless of how DATABASE_URL is written."""
+    if url.startswith("postgresql://") or url.startswith("postgres://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1).replace(
+            "postgres://", "postgresql+asyncpg://", 1
+        )
+    return url
+
+
 def init_db(url: str) -> None:
+    url = _normalise_url(url)
     _state.engine = create_async_engine(url, echo=False, connect_args=_connect_args(url))
     _state.factory = async_sessionmaker(_state.engine, expire_on_commit=False)
 

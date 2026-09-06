@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -19,4 +19,6 @@ class Asset(Base):
     asset_type: Mapped[str] = mapped_column(String(10), nullable=False)  # "stock" | "crypto"
     category: Mapped[str] = mapped_column(String(50), nullable=False)
     coingecko_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
