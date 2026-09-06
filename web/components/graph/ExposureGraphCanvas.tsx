@@ -7,7 +7,6 @@ import {
   Controls,
   BackgroundVariant,
   useNodesState,
-  useEdgesState,
   useReactFlow,
   ReactFlowProvider,
   type Node,
@@ -59,11 +58,7 @@ const nodeTypes = { center: CenterNode, crypto: CryptoNode };
 function buildLayout(apiNodes: ApiGraphNode[]): Node[] {
   const center = apiNodes.find((n) => n.is_center);
   const cryptos = apiNodes.filter((n) => !n.is_center);
-
-  const cx = 300;
-  const cy = 250;
-  const radius = 200;
-
+  const cx = 300, cy = 250, radius = 200;
   const result: Node[] = [];
 
   if (center) {
@@ -93,10 +88,7 @@ function buildLayout(apiNodes: ApiGraphNode[]): Node[] {
   return result;
 }
 
-function buildEdges(
-  apiEdges: ApiGraphResult["edges"],
-  minScore: number,
-): Edge[] {
+function buildEdges(apiEdges: ApiGraphResult["edges"], minScore: number): Edge[] {
   return apiEdges
     .filter((e) => e.weight >= minScore)
     .map((e) => ({
@@ -119,19 +111,32 @@ function GraphInner({ graphData }: { graphData: ApiGraphResult }) {
   const { fitView } = useReactFlow();
 
   const initialNodes = useMemo(() => buildLayout(graphData.nodes), [graphData.nodes]);
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
+  const [allNodes, , onNodesChange] = useNodesState(initialNodes);
 
+  // Recompute visible edges whenever the slider moves
   const visibleEdges = useMemo(
     () => buildEdges(graphData.edges, minScore),
     [graphData.edges, minScore],
   );
-  const [edges, , onEdgesChange] = useEdgesState(visibleEdges);
+
+  // Derive connected node IDs from the visible edges, then filter nodes
+  const connectedNodeIds = useMemo(
+    () => new Set(visibleEdges.flatMap((e) => [e.source, e.target])),
+    [visibleEdges],
+  );
+
+  const visibleNodes = useMemo(
+    () => allNodes.filter((n) => {
+      const d = n.data as { is_center?: boolean };
+      return Boolean(d.is_center) || connectedNodeIds.has(n.id);
+    }),
+    [allNodes, connectedNodeIds],
+  );
 
   const onReset = useCallback(() => { fitView({ padding: 0.15 }); }, [fitView]);
 
   return (
     <div className="relative h-full w-full">
-      {/* Controls overlay */}
       <div className="absolute left-4 top-4 z-10 flex flex-col gap-3">
         <div className="rounded-xl border border-white/[0.09] bg-panel/90 p-3 backdrop-blur-sm">
           <label className="mb-1 block font-mono text-[10px] text-muted">
@@ -156,10 +161,9 @@ function GraphInner({ graphData }: { graphData: ApiGraphResult }) {
       </div>
 
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={visibleNodes}
+        edges={visibleEdges}
         onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.15 }}

@@ -6,6 +6,11 @@ interface FreshnessLabelProps {
 }
 
 export default function FreshnessLabel({ isDemo, provider, date, className = "" }: FreshnessLabelProps) {
+  if (isDemo === null) {
+    // Data origin unknown — render nothing rather than a misleading label
+    return null;
+  }
+
   if (isDemo) {
     return (
       <span
@@ -17,11 +22,12 @@ export default function FreshnessLabel({ isDemo, provider, date, className = "" 
     );
   }
 
-  const label = provider === "coingecko"
-    ? "CoinGecko"
-    : provider === "marketstack"
-      ? "Marketstack · Last close"
-      : provider ?? "Live";
+  const label =
+    provider === "coingecko"
+      ? "CoinGecko"
+      : provider === "marketstack"
+        ? "Marketstack"
+        : provider ?? "Live";
 
   return (
     <span

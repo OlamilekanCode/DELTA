@@ -45,6 +45,12 @@ export interface ApiAsset {
   last_price: number | null;
   last_price_date: string | null;
   is_demo: boolean | null;
+  // Quote fields — populated for crypto assets only
+  change_24h_pct: number | null;
+  market_cap_usd: number | null;
+  volume_24h_usd: number | null;
+  quote_ts: string | null;
+  quote_provider: string | null;
 }
 
 export interface ApiAssetListOut {

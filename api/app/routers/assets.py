@@ -7,13 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.asset import Asset
 from app.models.price import DailyPrice
+from app.models.quote import AssetQuote
 from app.schemas.asset import AssetHistoryOut, AssetHistoryPoint, AssetListOut, AssetOut
 
 router = APIRouter()
 
 
 async def _latest_prices(db: AsyncSession) -> dict[int, DailyPrice]:
-    """Return the most recent DailyPrice row per asset_id."""
+    """Most recent DailyPrice row per asset_id."""
     sub = (
         select(DailyPrice.asset_id, func.max(DailyPrice.date).label("max_date"))
         .group_by(DailyPrice.asset_id)
@@ -28,7 +29,35 @@ async def _latest_prices(db: AsyncSession) -> dict[int, DailyPrice]:
     return {row.asset_id: row for row in result.scalars().all()}
 
 
-def _asset_out(asset: Asset, price_row: DailyPrice | None) -> AssetOut:
+async def _latest_quotes(db: AsyncSession) -> dict[int, AssetQuote]:
+    """Latest AssetQuote row per asset_id (one row per crypto asset)."""
+    result = await db.execute(select(AssetQuote))
+    return {row.asset_id: row for row in result.scalars().all()}
+
+
+def _asset_out(
+    asset: Asset,
+    price_row: DailyPrice | None,
+    quote_row: AssetQuote | None = None,
+) -> AssetOut:
+    # Crypto: prefer AssetQuote for current price and quote metadata
+    if asset.asset_type == "crypto" and quote_row is not None:
+        return AssetOut(
+            symbol=asset.symbol,
+            name=asset.name,
+            category=asset.category,
+            asset_type=asset.asset_type,
+            coingecko_id=asset.coingecko_id,
+            last_price=quote_row.price_usd,
+            last_price_date=quote_row.ts.date().isoformat() if quote_row.ts else None,
+            is_demo=quote_row.is_demo,
+            change_24h_pct=quote_row.change_24h_pct,
+            market_cap_usd=quote_row.market_cap_usd,
+            volume_24h_usd=quote_row.volume_24h_usd,
+            quote_ts=quote_row.ts.isoformat() if quote_row.ts else None,
+            quote_provider=quote_row.provider,
+        )
+    # Stocks and crypto fallback: use DailyPrice
     return AssetOut(
         symbol=asset.symbol,
         name=asset.name,
@@ -52,7 +81,8 @@ async def list_assets(
     result = await db.execute(stmt)
     assets = result.scalars().all()
     price_map = await _latest_prices(db)
-    return AssetListOut(assets=[_asset_out(a, price_map.get(a.id)) for a in assets])
+    quote_map = await _latest_quotes(db)
+    return AssetListOut(assets=[_asset_out(a, price_map.get(a.id), quote_map.get(a.id)) for a in assets])
 
 
 @router.get("/assets/search", response_model=AssetListOut)
@@ -76,7 +106,8 @@ async def search_assets(
     result = await db.execute(stmt)
     assets = result.scalars().all()
     price_map = await _latest_prices(db)
-    return AssetListOut(assets=[_asset_out(a, price_map.get(a.id)) for a in assets])
+    quote_map = await _latest_quotes(db)
+    return AssetListOut(assets=[_asset_out(a, price_map.get(a.id), quote_map.get(a.id)) for a in assets])
 
 
 @router.get("/assets/{symbol}", response_model=AssetOut)
@@ -88,7 +119,8 @@ async def get_asset(symbol: str, db: AsyncSession = Depends(get_db)) -> AssetOut
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset {symbol!r} not found")
     price_map = await _latest_prices(db)
-    return _asset_out(asset, price_map.get(asset.id))
+    quote_map = await _latest_quotes(db)
+    return _asset_out(asset, price_map.get(asset.id), quote_map.get(asset.id))
 
 
 @router.get("/assets/{symbol}/history", response_model=AssetHistoryOut)
@@ -116,8 +148,7 @@ async def get_asset_history(
 
     is_demo: bool | None = None
     if prices:
-        any_demo = any(p.is_demo for p in prices)
-        is_demo = any_demo
+        is_demo = any(p.is_demo for p in prices)
 
     provider = "fixture" if is_demo else ("coingecko" if asset.asset_type == "crypto" else "marketstack")
 

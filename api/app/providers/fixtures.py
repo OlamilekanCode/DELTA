@@ -1,8 +1,6 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
-from app.providers.base import PriceRow
-
-_START_DATE = date(2026, 6, 3)
+from app.providers.base import PriceRow, QuoteRow
 
 _RAW_NVDA: list[float] = [
     403, 408, 412, 418, 425, 421, 430, 438, 445, 440, 452, 458, 462, 470, 465, 472, 480,
@@ -133,60 +131,90 @@ _SYMBOL_DATA: dict[str, list[float]] = {
 
 FIXTURE_ASSETS: list[dict] = [
     # Stocks
-    {"symbol": "NVDA", "name": "NVIDIA Corporation", "asset_type": "stock", "category": "Technology", "coingecko_id": None},
-    {"symbol": "TSLA", "name": "Tesla Inc.", "asset_type": "stock", "category": "Technology", "coingecko_id": None},
-    {"symbol": "COIN", "name": "Coinbase Global Inc.", "asset_type": "stock", "category": "Finance", "coingecko_id": None},
-    {"symbol": "MSTR", "name": "MicroStrategy Inc.", "asset_type": "stock", "category": "Finance", "coingecko_id": None},
-    {"symbol": "AMD", "name": "Advanced Micro Devices", "asset_type": "stock", "category": "Technology", "coingecko_id": None},
-    {"symbol": "MSFT", "name": "Microsoft Corporation", "asset_type": "stock", "category": "Technology", "coingecko_id": None},
-    {"symbol": "META", "name": "Meta Platforms Inc.", "asset_type": "stock", "category": "Technology", "coingecko_id": None},
-    {"symbol": "PLTR", "name": "Palantir Technologies", "asset_type": "stock", "category": "Technology", "coingecko_id": None},
+    {"symbol": "NVDA", "name": "NVIDIA Corporation",    "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
+    {"symbol": "TSLA", "name": "Tesla Inc.",             "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
+    {"symbol": "COIN", "name": "Coinbase Global Inc.",   "asset_type": "stock",  "category": "Finance",      "coingecko_id": None},
+    {"symbol": "MSTR", "name": "MicroStrategy Inc.",     "asset_type": "stock",  "category": "Finance",      "coingecko_id": None},
+    {"symbol": "AMD",  "name": "Advanced Micro Devices", "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
+    {"symbol": "MSFT", "name": "Microsoft Corporation",  "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
+    {"symbol": "META", "name": "Meta Platforms Inc.",    "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
+    {"symbol": "PLTR", "name": "Palantir Technologies",  "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
     # Crypto — Layer 1
-    {"symbol": "BTC", "name": "Bitcoin", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "bitcoin"},
-    {"symbol": "ETH", "name": "Ethereum", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "ethereum"},
-    {"symbol": "SOL", "name": "Solana", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "solana"},
-    {"symbol": "BNB", "name": "BNB", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "binancecoin"},
-    {"symbol": "XRP", "name": "XRP", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "ripple"},
-    {"symbol": "ADA", "name": "Cardano", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "cardano"},
-    {"symbol": "AVAX", "name": "Avalanche", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "avalanche-2"},
-    {"symbol": "DOT", "name": "Polkadot", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "polkadot"},
-    {"symbol": "NEAR", "name": "NEAR Protocol", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "near"},
-    {"symbol": "ICP", "name": "Internet Computer", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "internet-computer"},
-    {"symbol": "APT", "name": "Aptos", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "aptos"},
-    {"symbol": "SUI", "name": "Sui", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "sui"},
-    {"symbol": "HBAR", "name": "Hedera", "asset_type": "crypto", "category": "Layer 1", "coingecko_id": "hedera-hashgraph"},
+    {"symbol": "BTC",  "name": "Bitcoin",                "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "bitcoin"},
+    {"symbol": "ETH",  "name": "Ethereum",               "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "ethereum"},
+    {"symbol": "SOL",  "name": "Solana",                 "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "solana"},
+    {"symbol": "BNB",  "name": "BNB",                    "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "binancecoin"},
+    {"symbol": "XRP",  "name": "XRP",                    "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "ripple"},
+    {"symbol": "ADA",  "name": "Cardano",                "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "cardano"},
+    {"symbol": "AVAX", "name": "Avalanche",              "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "avalanche-2"},
+    {"symbol": "DOT",  "name": "Polkadot",               "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "polkadot"},
+    {"symbol": "NEAR", "name": "NEAR Protocol",          "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "near"},
+    {"symbol": "ICP",  "name": "Internet Computer",      "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "internet-computer"},
+    {"symbol": "APT",  "name": "Aptos",                  "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "aptos"},
+    {"symbol": "SUI",  "name": "Sui",                    "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "sui"},
+    {"symbol": "HBAR", "name": "Hedera",                 "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "hedera-hashgraph"},
     # Crypto — Layer 2
-    {"symbol": "ARB", "name": "Arbitrum", "asset_type": "crypto", "category": "Layer 2", "coingecko_id": "arbitrum"},
-    {"symbol": "OP", "name": "Optimism", "asset_type": "crypto", "category": "Layer 2", "coingecko_id": "optimism"},
-    {"symbol": "POL", "name": "Polygon", "asset_type": "crypto", "category": "Layer 2", "coingecko_id": "matic-network"},
+    {"symbol": "ARB",  "name": "Arbitrum",               "asset_type": "crypto", "category": "Layer 2",      "coingecko_id": "arbitrum"},
+    {"symbol": "OP",   "name": "Optimism",               "asset_type": "crypto", "category": "Layer 2",      "coingecko_id": "optimism"},
+    {"symbol": "POL",  "name": "Polygon",                "asset_type": "crypto", "category": "Layer 2",      "coingecko_id": "matic-network"},
     # Crypto — DeFi
-    {"symbol": "UNI", "name": "Uniswap", "asset_type": "crypto", "category": "DeFi", "coingecko_id": "uniswap"},
-    {"symbol": "AAVE", "name": "Aave", "asset_type": "crypto", "category": "DeFi", "coingecko_id": "aave"},
-    {"symbol": "INJ", "name": "Injective", "asset_type": "crypto", "category": "DeFi", "coingecko_id": "injective-protocol"},
+    {"symbol": "UNI",  "name": "Uniswap",                "asset_type": "crypto", "category": "DeFi",         "coingecko_id": "uniswap"},
+    {"symbol": "AAVE", "name": "Aave",                   "asset_type": "crypto", "category": "DeFi",         "coingecko_id": "aave"},
+    {"symbol": "INJ",  "name": "Injective",              "asset_type": "crypto", "category": "DeFi",         "coingecko_id": "injective-protocol"},
     # Crypto — Oracle/Data
-    {"symbol": "LINK", "name": "Chainlink", "asset_type": "crypto", "category": "Oracle/Data", "coingecko_id": "chainlink"},
-    {"symbol": "GRT", "name": "The Graph", "asset_type": "crypto", "category": "Oracle/Data", "coingecko_id": "the-graph"},
+    {"symbol": "LINK", "name": "Chainlink",              "asset_type": "crypto", "category": "Oracle/Data",  "coingecko_id": "chainlink"},
+    {"symbol": "GRT",  "name": "The Graph",              "asset_type": "crypto", "category": "Oracle/Data",  "coingecko_id": "the-graph"},
     # Crypto — AI/Compute
-    {"symbol": "TAO", "name": "Bittensor", "asset_type": "crypto", "category": "AI/Compute", "coingecko_id": "bittensor"},
-    {"symbol": "RENDER", "name": "Render", "asset_type": "crypto", "category": "AI/Compute", "coingecko_id": "render-token"},
-    {"symbol": "FET", "name": "Fetch.ai", "asset_type": "crypto", "category": "AI/Compute", "coingecko_id": "fetch-ai"},
-    {"symbol": "AKT", "name": "Akash Network", "asset_type": "crypto", "category": "AI/Compute", "coingecko_id": "akash-network"},
-    {"symbol": "AIOZ", "name": "AIOZ Network", "asset_type": "crypto", "category": "AI/Compute", "coingecko_id": "aioz-network"},
+    {"symbol": "TAO",    "name": "Bittensor",            "asset_type": "crypto", "category": "AI/Compute",   "coingecko_id": "bittensor"},
+    {"symbol": "RENDER", "name": "Render",               "asset_type": "crypto", "category": "AI/Compute",   "coingecko_id": "render-token"},
+    {"symbol": "FET",    "name": "Fetch.ai",             "asset_type": "crypto", "category": "AI/Compute",   "coingecko_id": "fetch-ai"},
+    {"symbol": "AKT",    "name": "Akash Network",        "asset_type": "crypto", "category": "AI/Compute",   "coingecko_id": "akash-network"},
+    {"symbol": "AIOZ",   "name": "AIOZ Network",         "asset_type": "crypto", "category": "AI/Compute",   "coingecko_id": "aioz-network"},
     # Crypto — Storage
-    {"symbol": "FIL", "name": "Filecoin", "asset_type": "crypto", "category": "Storage", "coingecko_id": "filecoin"},
-    {"symbol": "AR", "name": "Arweave", "asset_type": "crypto", "category": "Storage", "coingecko_id": "arweave"},
+    {"symbol": "FIL",  "name": "Filecoin",               "asset_type": "crypto", "category": "Storage",      "coingecko_id": "filecoin"},
+    {"symbol": "AR",   "name": "Arweave",                "asset_type": "crypto", "category": "Storage",      "coingecko_id": "arweave"},
     # Crypto — Memecoin
-    {"symbol": "DOGE", "name": "Dogecoin", "asset_type": "crypto", "category": "Memecoin", "coingecko_id": "dogecoin"},
-    {"symbol": "PEPE", "name": "Pepe", "asset_type": "crypto", "category": "Memecoin", "coingecko_id": "pepe"},
+    {"symbol": "DOGE", "name": "Dogecoin",               "asset_type": "crypto", "category": "Memecoin",     "coingecko_id": "dogecoin"},
+    {"symbol": "PEPE", "name": "Pepe",                   "asset_type": "crypto", "category": "Memecoin",     "coingecko_id": "pepe"},
 ]
+
+
+def _fixture_change_pct(symbol: str) -> float:
+    """Deterministic fake 24h change in range [-5%, +5%]."""
+    seed = sum(ord(c) for c in symbol)
+    return round(((seed % 21) - 10) * 0.5, 2)
 
 
 class FixtureProvider:
     async def fetch_ohlcv(self, symbol: str, days: int) -> list[PriceRow]:
         prices = _SYMBOL_DATA.get(symbol.upper(), [])
-        rows: list[PriceRow] = []
-        for i, close in enumerate(prices[-days:]):
-            offset = max(0, len(prices) - days)
-            d = _START_DATE + timedelta(days=offset + i)
-            rows.append(PriceRow(date=d.isoformat(), close=float(close)))
-        return rows
+        n = min(len(prices), days)
+        today = date.today()
+        return [
+            PriceRow(
+                date=(today - timedelta(days=n - 1 - i)).isoformat(),
+                close=float(close),
+            )
+            for i, close in enumerate(prices[-n:])
+        ]
+
+    async def fetch_quotes(self, symbols: list[str]) -> list[QuoteRow]:
+        """Return deterministic fake current quotes for the given symbols."""
+        now = datetime.now(UTC)
+        result = []
+        for sym in symbols:
+            prices = _SYMBOL_DATA.get(sym.upper(), [])
+            if not prices:
+                continue
+            price = float(prices[-1])
+            result.append(
+                QuoteRow(
+                    symbol=sym.upper(),
+                    price_usd=price,
+                    market_cap_usd=round(price * 18_000_000, 2),
+                    volume_24h_usd=round(price * 1_500_000, 2),
+                    change_24h_pct=_fixture_change_pct(sym),
+                    ts=now,
+                )
+            )
+        return result

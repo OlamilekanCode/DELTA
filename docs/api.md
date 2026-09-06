@@ -1,8 +1,10 @@
-# DELTA API Reference
+# Synthetic Exposure API Reference
 
-> Base URL: `/api/v1` | Updated: Milestone 0 — Placeholder. Expand in Milestone 2.
+**Base URL**: `/api/v1`
 
-All endpoints are versioned under `/api/v1`. Responses use ISO 8601 UTC timestamps. Every response includes `is_demo: boolean` to indicate whether fixture data is being returned.
+All endpoints are versioned under `/api/v1`. Field names use `snake_case`. The `is_demo` or `demo` field in every response indicates whether fixture data was returned (`USE_DEMO_DATA=true`).
+
+---
 
 ## Health
 
@@ -11,99 +13,125 @@ All endpoints are versioned under `/api/v1`. Responses use ISO 8601 UTC timestam
 Returns service status. Used as the Railway health-check endpoint.
 
 ```json
-{
-  "status": "ok",
-  "milestone": "placeholder",
-  "timestamp": "2026-09-04T00:00:00Z"
-}
+{ "status": "ok", "timestamp": "2026-09-06T12:00:00Z" }
 ```
 
 ---
 
-## Public endpoints (Milestone 2+)
+## Assets
 
-### `GET /api/v1/assets/search?q={query}`
+### `GET /api/v1/assets`
 
-Search supported stocks and crypto assets.
+Returns all 38 assets (8 stocks + 30 crypto) with latest price data.
+
+Query params:
+- `type=stock|crypto` — filter by asset type
+
+### `GET /api/v1/assets/search`
+
+Search assets by symbol, name, or category.
+
+Query params:
+- `q=string` — search query (matches symbol, name, category)
+- `type=stock|crypto` — optional type filter
 
 ### `GET /api/v1/assets/{symbol}`
 
-Asset identity, current price, data source, and freshness.
+Single asset with latest price and quote data.
 
-### `GET /api/v1/assets/{symbol}/history?range=90d`
+**Crypto assets** — current price comes from `asset_quotes` (populated by `refresh-crypto-quotes`). Includes `change_24h_pct`, `market_cap_usd`, `volume_24h_usd`, `quote_ts`, `quote_provider`. Falls back to `DailyPrice` if no quote row exists.
 
-Historical daily price data for the specified range.
+**Stock assets** — price comes from `DailyPrice` (Marketstack EOD). Quote fields are `null`.
 
-### `GET /api/v1/exposures/{symbol}?window=90&limit=20`
+### `GET /api/v1/assets/{symbol}/history`
 
-Exposure Scores for the top related crypto assets. Returns pre-computed results; never recalculates on request.
+Daily price history for the given asset.
 
-### `GET /api/v1/graphs/{symbol}?window=90&depth=1`
+Query params:
+- `days=7–365` (default: 90)
 
-Graph data (nodes + edges) for the specified stock. Depth 1 is public; depth 2+ requires a token-gated session.
+Response includes `prices: [{date, close}]`, `is_demo`, `provider`.
 
-### `GET /api/v1/methodology`
-
-Returns the current model version, description, and data source metadata.
-
----
-
-## Authentication (Milestone 4+)
-
-### `POST /api/v1/auth/nonce`
-
-Issue a backend-signed SIWE nonce for the provided wallet address.
-
-### `POST /api/v1/auth/verify`
-
-Verify a signed SIWE message and create an authenticated session.
-
-### `POST /api/v1/auth/logout`
-
-Invalidate the current session.
-
-### `GET /api/v1/access`
-
-Return the current session's access level and `$DELTA` balance.
-
-### `POST /api/v1/access/refresh`
-
-Re-check the on-chain balance and update the access level.
-
----
-
-## Token-gated endpoints (Milestone 4+)
-
-### `GET /api/v1/graphs/{symbol}?depth=2`
-
-Full graph data including depth-2 nodes. Requires authenticated session with sufficient `$DELTA` balance.
-
-### `POST /api/v1/portfolio/analyze`
-
-Analyze the connected wallet's read-only on-chain holdings and return category + stock exposure summary.
-
----
-
-## Response conventions
+### Asset schema
 
 ```typescript
-// Success
-{
-  "data": { ... },
-  "is_demo": false,
-  "data_source": "marketstack",
-  "freshness": "2026-09-04T20:15:00Z"
-}
-
-// Error
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Asset UNKNOWN not found in supported list"
-  }
+interface AssetOut {
+  symbol: string;
+  name: string;
+  category: string;
+  asset_type: "stock" | "crypto";
+  coingecko_id: string | null;
+  last_price: number | null;
+  last_price_date: string | null;   // ISO date
+  is_demo: boolean | null;
+  // Populated for crypto only:
+  change_24h_pct: number | null;
+  market_cap_usd: number | null;
+  volume_24h_usd: number | null;
+  quote_ts: string | null;          // ISO 8601 UTC timestamp of quote
+  quote_provider: string | null;   // "coingecko" | "fixture"
 }
 ```
 
-## Rate limits
+---
 
-Applied per IP (public) and per wallet address (authenticated). Exact limits are configured at the API gateway layer and documented in `docs/architecture.md` after Milestone 6.
+## Correlation
+
+### `GET /api/v1/correlation/{symbol}`
+
+Pearson correlation scores computed on request from stored `DailyPrice` rows.
+
+Query params:
+- `days=60–90` (default: 90)
+
+Response: `CorrelationResult` with `scores: [ExposureScoreOut]`, `demo`, `computed_at`.
+
+---
+
+## Exposures
+
+### `GET /api/v1/exposures/{symbol}`
+
+Pre-computed stored Exposure Scores for the given stock.
+
+On first request with no stored scores, scores are computed and written to `stored_exposure_scores`. Subsequent calls read from the table directly. Scores older than 25 hours are flagged `stale: true`.
+
+Response: `ExposuresResult` with `stock`, `scores`, `computed_at`, `stale`, `demo`.
+
+---
+
+## Graphs
+
+### `GET /api/v1/graphs/{symbol}`
+
+Graph nodes and edges for the Exposure Graph. Returns up to 12 crypto nodes plus edges connecting them to the stock node.
+
+Response: `GraphResult` with `nodes: [GraphNode]`, `edges: [GraphEdge]`, `demo`, `computed_at`.
+
+---
+
+## Errors
+
+FastAPI returns standard HTTP error responses:
+
+```json
+{ "detail": "Asset 'FAKEX' not found" }
+```
+
+| Code | Meaning |
+|------|---------|
+| `404` | Asset not found |
+| `422` | Invalid query parameter (Pydantic validation failure) |
+| `500` | Unexpected server error |
+
+---
+
+## Not implemented
+
+The following are not implemented and have no planned delivery date:
+
+- `/api/v1/auth/*` — SIWE wallet authentication
+- `/api/v1/access` — session-based access level
+- `/api/v1/portfolio/*` — portfolio exposure analysis
+
+Portfolio analysis requires backend session verification and is planned for a future release.

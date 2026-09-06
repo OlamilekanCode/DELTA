@@ -38,6 +38,17 @@ function CategoryBadge({ category }: { category: string }) {
   );
 }
 
+function Change24h({ pct }: { pct: number }) {
+  const positive = pct >= 0;
+  return (
+    <span
+      className={`font-mono text-[10px] font-medium ${positive ? "text-green" : "text-red-400"}`}
+    >
+      {positive ? "+" : ""}{pct.toFixed(2)}%
+    </span>
+  );
+}
+
 function AssetCard({ asset }: { asset: ApiAsset }) {
   const c = CATEGORY_COLORS[asset.category] ?? DEFAULT_COLOR;
   return (
@@ -57,19 +68,27 @@ function AssetCard({ asset }: { asset: ApiAsset }) {
         </div>
         <span
           className="shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider"
-          style={{ color: asset.asset_type === "stock" ? "#9B7BFF" : c.text, borderColor: asset.asset_type === "stock" ? "rgba(155,123,255,0.3)" : c.border }}
+          style={{
+            color: asset.asset_type === "stock" ? "#9B7BFF" : c.text,
+            borderColor: asset.asset_type === "stock" ? "rgba(155,123,255,0.3)" : c.border,
+          }}
         >
           {asset.asset_type}
         </span>
       </div>
 
-      {asset.last_price != null ? (
-        <p className="font-mono text-base font-bold text-text">
-          ${formatPrice(asset.last_price)}
-        </p>
-      ) : (
-        <p className="font-mono text-sm text-muted/50">—</p>
-      )}
+      <div className="flex items-baseline justify-between gap-1">
+        {asset.last_price != null ? (
+          <p className="font-mono text-base font-bold text-text">
+            ${formatPrice(asset.last_price)}
+          </p>
+        ) : (
+          <p className="font-mono text-sm text-muted/50">—</p>
+        )}
+        {asset.change_24h_pct != null && (
+          <Change24h pct={asset.change_24h_pct} />
+        )}
+      </div>
 
       <div className="mt-2 flex items-center justify-between gap-2">
         <CategoryBadge category={asset.category} />
@@ -109,7 +128,6 @@ export default function AssetGrid({ assets }: AssetGridProps) {
 
   return (
     <div>
-      {/* Search + type filter */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <svg
@@ -148,7 +166,6 @@ export default function AssetGrid({ assets }: AssetGridProps) {
         </div>
       </div>
 
-      {/* Category filter */}
       <div className="mb-6 flex flex-wrap gap-2">
         {categories.map((cat) => (
           <button
@@ -165,7 +182,6 @@ export default function AssetGrid({ assets }: AssetGridProps) {
         ))}
       </div>
 
-      {/* Results */}
       {filtered.length === 0 ? (
         <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-xl border border-white/[0.05] py-16 text-center">
           <p className="font-mono text-sm text-muted">No assets match your search.</p>

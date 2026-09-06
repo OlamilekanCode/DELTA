@@ -1,3 +1,4 @@
+import logging
 import sys
 from datetime import UTC, datetime
 
@@ -8,32 +9,32 @@ from app.config import Settings, get_settings
 from app.database import get_engine, get_factory, init_db
 from app.models.asset import Asset
 from app.models.price import DailyPrice
+from app.models.quote import AssetQuote
 from app.providers.base import PriceRow, ProviderProtocol
 from app.providers.coingecko import CoinGeckoProvider
-from app.providers.fixtures import FIXTURE_ASSETS, FixtureProvider
+from app.providers.fixtures import (
+    _SYMBOL_DATA,
+    FIXTURE_ASSETS,
+    FixtureProvider,
+    _fixture_change_pct,
+)
 from app.providers.marketstack import MarketstackProvider
+
+log = logging.getLogger(__name__)
 
 
 def _get_provider(asset_type: str, settings: Settings) -> ProviderProtocol:
-    """
-    Returns FixtureProvider when USE_DEMO_DATA is true.
-    When USE_DEMO_DATA is false, requires both API keys and fails clearly if either is absent.
-    Never mixes fixture and real providers within one ingestion run.
-    """
     if settings.use_demo_data:
         return FixtureProvider()
-
     if asset_type == "stock":
         if not settings.marketstack_api_key:
-            print("ERROR: MARKETSTACK_API_KEY is required when USE_DEMO_DATA=false", file=sys.stderr)
+            log.error("MARKETSTACK_API_KEY is required when USE_DEMO_DATA=false")
             sys.exit(1)
         return MarketstackProvider(settings.marketstack_api_key)
-
-    # crypto
     if not settings.coingecko_api_key:
-        print("ERROR: COINGECKO_API_KEY is required when USE_DEMO_DATA=false", file=sys.stderr)
+        log.error("COINGECKO_API_KEY is required when USE_DEMO_DATA=false")
         sys.exit(1)
-    return CoinGeckoProvider(settings.coingecko_api_key)
+    return CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
 
 
 async def _upsert_prices(
@@ -41,7 +42,7 @@ async def _upsert_prices(
 ) -> int:
     if not rows:
         return 0
-    # Delete any rows from the opposite source so an asset never holds a mix.
+    # Remove rows from the opposite source so an asset never holds a mix.
     await db.execute(
         delete(DailyPrice).where(
             DailyPrice.asset_id == asset_id,
@@ -77,6 +78,42 @@ async def _upsert_prices(
     return inserted
 
 
+async def _upsert_quote(
+    db: AsyncSession,
+    asset_id: int,
+    price_usd: float,
+    market_cap_usd: float | None,
+    volume_24h_usd: float | None,
+    change_24h_pct: float | None,
+    provider: str,
+    is_demo: bool,
+    ts: datetime,
+) -> None:
+    result = await db.execute(
+        select(AssetQuote).where(AssetQuote.asset_id == asset_id)
+    )
+    row = result.scalar_one_or_none()
+    if row:
+        row.price_usd = price_usd
+        row.market_cap_usd = market_cap_usd
+        row.volume_24h_usd = volume_24h_usd
+        row.change_24h_pct = change_24h_pct
+        row.provider = provider
+        row.is_demo = is_demo
+        row.ts = ts
+    else:
+        db.add(AssetQuote(
+            asset_id=asset_id,
+            price_usd=price_usd,
+            market_cap_usd=market_cap_usd,
+            volume_24h_usd=volume_24h_usd,
+            change_24h_pct=change_24h_pct,
+            provider=provider,
+            is_demo=is_demo,
+            ts=ts,
+        ))
+
+
 async def seed_asset_catalogue(db: AsyncSession) -> None:
     """Upsert asset catalogue rows without touching price data."""
     for asset_data in FIXTURE_ASSETS:
@@ -99,7 +136,6 @@ async def seed_asset_catalogue(db: AsyncSession) -> None:
 async def ingest_asset(
     db: AsyncSession, asset: Asset, provider: ProviderProtocol
 ) -> int:
-    # CoinGecko expects coingecko_id; Marketstack and FixtureProvider expect symbol.
     key = (
         asset.coingecko_id
         if isinstance(provider, CoinGeckoProvider) and asset.coingecko_id
@@ -114,8 +150,10 @@ async def ingest_asset(
 
 
 async def seed_fixture_data(db: AsyncSession) -> None:
-    """Called by lifespan when USE_DEMO_DATA=true. Seeds catalogue + fixture prices idempotently."""
+    """Seeds catalogue + fixture prices + crypto quotes idempotently."""
     provider = FixtureProvider()
+    now = datetime.now(UTC)
+
     for asset_data in FIXTURE_ASSETS:
         result = await db.execute(select(Asset).where(Asset.symbol == asset_data["symbol"]))
         asset = result.scalar_one_or_none()
@@ -126,12 +164,30 @@ async def seed_fixture_data(db: AsyncSession) -> None:
                 asset_type=asset_data["asset_type"],
                 category=asset_data["category"],
                 coingecko_id=asset_data.get("coingecko_id"),
-                updated_at=datetime.now(UTC),
+                updated_at=now,
             )
             db.add(asset)
             await db.flush()
+
         rows = await provider.fetch_ohlcv(asset.symbol, 90)
         await _upsert_prices(db, asset.id, rows, is_demo=True)
+
+        if asset.asset_type == "crypto":
+            prices = _SYMBOL_DATA.get(asset.symbol, [])
+            if prices:
+                price = float(prices[-1])
+                await _upsert_quote(
+                    db=db,
+                    asset_id=asset.id,
+                    price_usd=price,
+                    market_cap_usd=round(price * 18_000_000, 2),
+                    volume_24h_usd=round(price * 1_500_000, 2),
+                    change_24h_pct=_fixture_change_pct(asset.symbol),
+                    provider="fixture",
+                    is_demo=True,
+                    ts=now,
+                )
+
     await db.commit()
 
 
@@ -146,7 +202,7 @@ async def main() -> None:
         ]
         if missing:
             for key in missing:
-                print(f"ERROR: {key} is required when USE_DEMO_DATA=false", file=sys.stderr)
+                log.error("ERROR: %s is required when USE_DEMO_DATA=false", key)
             sys.exit(1)
     init_db(settings.database_url)
     try:
@@ -156,14 +212,17 @@ async def main() -> None:
             assets = list(assets_result.scalars().all())
             for asset in assets:
                 provider = _get_provider(asset.asset_type, settings)
-                n = await ingest_asset(db, asset, provider)
-                mode = "demo" if settings.use_demo_data else "real"
-                print(f"[{mode}] {asset.symbol}: {n} new rows")
+                try:
+                    n = await ingest_asset(db, asset, provider)
+                    mode = "demo" if settings.use_demo_data else "real"
+                    log.info("[%s] %s: %d new rows", mode, asset.symbol, n)
+                except Exception:
+                    log.exception("Failed to ingest %s — skipping, existing data preserved", asset.symbol)
+                    await db.rollback()
     finally:
         await get_engine().dispose()
 
 
 if __name__ == "__main__":
     import asyncio
-
     asyncio.run(main())

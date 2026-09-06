@@ -11,14 +11,17 @@ Usage:
 import argparse
 import asyncio
 import logging
+import os
 import sys
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 
 from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import get_engine, get_factory, init_db
-from app.ingestion.runner import ingest_asset, seed_asset_catalogue
+from app.ingestion.runner import _upsert_quote, ingest_asset, seed_asset_catalogue
 from app.models.asset import Asset
 from app.providers.coingecko import CoinGeckoProvider
 from app.providers.marketstack import MarketstackProvider
@@ -26,6 +29,22 @@ from app.services.scoring import recompute_all_scores
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
+
+
+def _try_lock(command_name: str) -> bool:
+    """Acquire a PID-file lock. Returns False if another instance is already running."""
+    lock_path = Path(tempfile.gettempdir()) / f"delta_{command_name}.lock"
+    if lock_path.exists():
+        try:
+            existing_pid = int(lock_path.read_text().strip())
+            os.kill(existing_pid, 0)  # raises OSError if process is gone
+            return False
+        except (ValueError, OSError):
+            pass  # stale lock
+    lock_path.write_text(str(os.getpid()))
+    import atexit
+    atexit.register(lambda: lock_path.unlink(missing_ok=True))
+    return True
 
 
 def _require_keys(settings) -> None:
@@ -61,8 +80,11 @@ async def cmd_backfill() -> None:
         assets = list(result.scalars().all())
         for asset in assets:
             provider = cg if asset.asset_type == "crypto" else ms
-            n = await ingest_asset(db, asset, provider)
-            log.info("%s: %d rows upserted", asset.symbol, n)
+            try:
+                n = await ingest_asset(db, asset, provider)
+                log.info("%s: %d rows upserted", asset.symbol, n)
+            except Exception:
+                log.exception("Failed to ingest %s — skipping, existing data preserved", asset.symbol)
 
 
 async def cmd_refresh_crypto_quotes() -> None:
@@ -88,11 +110,13 @@ async def cmd_refresh_crypto_quotes() -> None:
             log.info("No crypto assets found")
             return
 
-        quotes = await cg.fetch_quotes_batch(cg_ids)
+        try:
+            quotes = await cg.fetch_quotes_batch(cg_ids)
+        except Exception:
+            log.exception("Provider error — existing quote data preserved")
+            return
+
         log.info("Fetched %d quotes", len(quotes))
-
-        from app.models.quote import AssetQuote
-
         symbol_to_asset = {a.symbol: a for a in crypto_assets}
         now = datetime.now(UTC)
 
@@ -100,28 +124,18 @@ async def cmd_refresh_crypto_quotes() -> None:
             asset = symbol_to_asset.get(q.symbol)
             if not asset:
                 continue
-            existing = await db.execute(
-                select(AssetQuote).where(AssetQuote.asset_id == asset.id)
+            await _upsert_quote(
+                db=db,
+                asset_id=asset.id,
+                price_usd=q.price_usd,
+                market_cap_usd=q.market_cap_usd,
+                volume_24h_usd=q.volume_24h_usd,
+                change_24h_pct=q.change_24h_pct,
+                provider="coingecko",
+                is_demo=False,
+                ts=now,
             )
-            row = existing.scalar_one_or_none()
-            if row:
-                row.price_usd = q.price_usd
-                row.market_cap_usd = q.market_cap_usd
-                row.volume_24h_usd = q.volume_24h_usd
-                row.change_24h_pct = q.change_24h_pct
-                row.ts = now
-                row.is_demo = False
-            else:
-                db.add(AssetQuote(
-                    asset_id=asset.id,
-                    price_usd=q.price_usd,
-                    market_cap_usd=q.market_cap_usd,
-                    volume_24h_usd=q.volume_24h_usd,
-                    change_24h_pct=q.change_24h_pct,
-                    ts=now,
-                    provider="coingecko",
-                    is_demo=False,
-                ))
+
         await db.commit()
         log.info("Quotes persisted")
 
@@ -140,7 +154,7 @@ async def cmd_refresh_stock_eod() -> None:
         sys.exit(1)
 
     today = date.today()
-    if today.weekday() >= 5:  # Sat=5, Sun=6
+    if today.weekday() >= 5:
         log.info("Weekend — skipping stock EOD refresh")
         return
 
@@ -149,8 +163,11 @@ async def cmd_refresh_stock_eod() -> None:
         result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
         stocks = result.scalars().all()
         for stock in stocks:
-            n = await ingest_asset(db, stock, ms)
-            log.info("%s: %d rows upserted", stock.symbol, n)
+            try:
+                n = await ingest_asset(db, stock, ms)
+                log.info("%s: %d rows upserted", stock.symbol, n)
+            except Exception:
+                log.exception("Failed to refresh %s — skipping, existing data preserved", stock.symbol)
 
 
 async def cmd_recompute_scores() -> None:
@@ -187,7 +204,11 @@ def main() -> None:
         help="Command to run",
     )
     args = parser.parse_args()
-    asyncio.run(_run(args.command))
+    cmd = args.command
+    if not _try_lock(cmd.replace("-", "_")):
+        log.error("Command '%s' is already running. Exiting.", cmd)
+        sys.exit(0)
+    asyncio.run(_run(cmd))
 
 
 if __name__ == "__main__":

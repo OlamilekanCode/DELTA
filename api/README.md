@@ -1,4 +1,4 @@
-# DELTA API
+# Synthetic Exposure API
 
 FastAPI backend providing asset data, price history, and stock↔crypto Exposure Scores.
 

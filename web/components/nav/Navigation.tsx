@@ -55,10 +55,10 @@ export default function Navigation() {
           <Link
             href="/"
             className="flex items-center gap-2 font-heading text-2xl font-bold text-violet transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet"
-            aria-label="DELTA home"
+            aria-label="Synthetic Exposure home"
           >
             <DeltaLogo size={24} />
-            DELTA
+            Synthetic Exposure
           </Link>
 
           {/* Desktop links */}

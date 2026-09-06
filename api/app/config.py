@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     delta_chain_id: int = 8453
     delta_token_address: str = ""
     delta_min_balance: str = ""
-    alchemy_api_key: str = ""
+
+    # Optional: backend RPC URL for on-chain reads (not currently used;
+    # balance gating is handled client-side by Reown/Wagmi)
+    base_rpc_url: str = ""
 
     cron_secret: str = ""
 

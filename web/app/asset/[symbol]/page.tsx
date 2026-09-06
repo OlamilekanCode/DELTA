@@ -25,6 +25,44 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
+function formatLargeNumber(n: number): string {
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9)  return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6)  return `$${(n / 1e6).toFixed(2)}M`;
+  return `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+function QuoteStats({ asset }: { asset: ApiAsset }) {
+  if (asset.asset_type !== "crypto") return null;
+  const hasQuote = asset.change_24h_pct != null || asset.market_cap_usd != null || asset.volume_24h_usd != null;
+  if (!hasQuote) return null;
+
+  return (
+    <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {asset.change_24h_pct != null && (
+        <div className="rounded-xl border border-white/[0.07] bg-panel p-3">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-muted">24h change</p>
+          <p className={`mt-1 font-mono text-lg font-bold ${asset.change_24h_pct >= 0 ? "text-green" : "text-red-400"}`}>
+            {asset.change_24h_pct >= 0 ? "+" : ""}{asset.change_24h_pct.toFixed(2)}%
+          </p>
+        </div>
+      )}
+      {asset.market_cap_usd != null && (
+        <div className="rounded-xl border border-white/[0.07] bg-panel p-3">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Market cap</p>
+          <p className="mt-1 font-mono text-lg font-bold text-text">{formatLargeNumber(asset.market_cap_usd)}</p>
+        </div>
+      )}
+      {asset.volume_24h_usd != null && (
+        <div className="rounded-xl border border-white/[0.07] bg-panel p-3">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-muted">24h volume</p>
+          <p className="mt-1 font-mono text-lg font-bold text-text">{formatLargeNumber(asset.volume_24h_usd)}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default async function AssetPage({ params }: Props) {
   const { symbol } = await params;
   const sym = symbol.toUpperCase();
@@ -45,7 +83,7 @@ export default async function AssetPage({ params }: Props) {
     try {
       exposures = await fetchExposures(sym);
     } catch {
-      // Scores not available — show without
+      // scores not yet available
     }
   }
 
@@ -100,12 +138,15 @@ export default async function AssetPage({ params }: Props) {
               <div className="mt-2 flex justify-end">
                 <FreshnessLabel
                   isDemo={asset.is_demo ?? null}
-                  provider={asset.asset_type === "stock" ? "marketstack" : "coingecko"}
+                  provider={asset.quote_provider ?? (asset.asset_type === "stock" ? "marketstack" : "coingecko")}
                   date={asset.last_price_date}
                 />
               </div>
             </div>
           </div>
+
+          {/* Quote stats row for crypto */}
+          <QuoteStats asset={asset} />
         </div>
       </div>
 
@@ -133,7 +174,6 @@ export default async function AssetPage({ params }: Props) {
           </div>
         </div>
 
-        {/* Links */}
         {asset.asset_type === "stock" && (
           <div className="mt-4 flex gap-3">
             <Link
@@ -155,7 +195,6 @@ export default async function AssetPage({ params }: Props) {
         )}
       </div>
 
-      {/* Exposure scores for stocks */}
       {exposures && <StockExposureList exposures={exposures} stockSymbol={sym} />}
     </div>
   );

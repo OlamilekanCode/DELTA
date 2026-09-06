@@ -118,6 +118,14 @@ async def test_asset_detail_crypto(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_asset_detail_crypto_quote_is_demo(client: AsyncClient) -> None:
+    resp = await client.get("/api/v1/assets/BTC")
+    body = resp.json()
+    assert body["is_demo"] is True
+    assert body["quote_provider"] == "fixture"
+
+
+@pytest.mark.asyncio
 async def test_asset_detail_404(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/assets/FAKEXYZ")
     assert resp.status_code == 404

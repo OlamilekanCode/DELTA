@@ -1,6 +1,6 @@
-# DELTA
+# Synthetic Exposure
 
-DELTA maps historical correlations between stocks and crypto assets through an interactive Exposure Graph and a 0–1 Exposure Score. The `$DELTA` utility token gates advanced features: deeper graph analysis, portfolio exposure breakdown, and detailed score history.
+Synthetic Exposure maps historical correlations between stocks and crypto assets through an interactive Exposure Graph and a 0–1 Exposure Score. The `$DELTA` utility token gates advanced features: deeper graph analysis, portfolio exposure breakdown, and detailed score history.
 
 ---
 
@@ -165,4 +165,4 @@ Set all secrets in Railway's environment panel. Never commit `.env` files with r
 
 ## Disclaimer
 
-DELTA Exposure Scores are for informational purposes only and do not constitute investment advice. See `/methodology` for the full methodology. DELTA does not custody assets, operate an exchange, or guarantee equivalent asset performance.
+Synthetic Exposure Scores are for informational purposes only and do not constitute investment advice. See `/methodology` for the full methodology. Synthetic Exposure does not custody assets, operate an exchange, or guarantee equivalent asset performance.
