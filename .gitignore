@@ -66,6 +66,9 @@ htmlcov/
 screenshots/
 lighthouse-results/
 
+# Cloudflare Wrangler build cache
+cloudflare/.wrangler/
+
 # No Docker at any stage — do not add Dockerfiles here
 
 # Local project files — never committed
