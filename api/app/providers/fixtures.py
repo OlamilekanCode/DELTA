@@ -156,7 +156,7 @@ FIXTURE_ASSETS: list[dict] = [
     # Crypto — Layer 2
     {"symbol": "ARB",  "name": "Arbitrum",               "asset_type": "crypto", "category": "Layer 2",      "coingecko_id": "arbitrum"},
     {"symbol": "OP",   "name": "Optimism",               "asset_type": "crypto", "category": "Layer 2",      "coingecko_id": "optimism"},
-    {"symbol": "POL",  "name": "Polygon",                "asset_type": "crypto", "category": "Layer 2",      "coingecko_id": "matic-network"},
+    {"symbol": "POL",  "name": "Polygon",                "asset_type": "crypto", "category": "Layer 2",      "coingecko_id": "polygon-ecosystem-token"},
     # Crypto — DeFi
     {"symbol": "UNI",  "name": "Uniswap",                "asset_type": "crypto", "category": "DeFi",         "coingecko_id": "uniswap"},
     {"symbol": "AAVE", "name": "Aave",                   "asset_type": "crypto", "category": "DeFi",         "coingecko_id": "aave"},
