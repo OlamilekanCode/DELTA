@@ -7,7 +7,6 @@ from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
 from app.schemas.correlation import StockInfo
 from app.schemas.graphs import GraphEdge, GraphNode, GraphResult
-from app.services.scoring import recompute_all_scores
 
 router = APIRouter()
 
@@ -36,16 +35,6 @@ async def get_graph(
         .limit(_GRAPH_MAX_NODES)
     )
     stored = stored_result.scalars().all()
-
-    if not stored:
-        await recompute_all_scores(db)
-        stored_result2 = await db.execute(
-            select(StoredExposureScore)
-            .where(StoredExposureScore.stock_id == stock.id, StoredExposureScore.score >= min_score)
-            .order_by(StoredExposureScore.score.desc())
-            .limit(_GRAPH_MAX_NODES)
-        )
-        stored = stored_result2.scalars().all()
 
     crypto_ids = [s.crypto_id for s in stored]
     crypto_result = await db.execute(select(Asset).where(Asset.id.in_(crypto_ids)))

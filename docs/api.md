@@ -1,4 +1,4 @@
-# Synthetic Exposure API Reference
+# DELTA — Synthetic Exposure API Reference
 
 **Base URL**: `/api/v1`
 
@@ -123,6 +123,40 @@ FastAPI returns standard HTTP error responses:
 | `404` | Asset not found |
 | `422` | Invalid query parameter (Pydantic validation failure) |
 | `500` | Unexpected server error |
+
+---
+
+## Cron endpoints
+
+Protected endpoints called by the Cloudflare Cron scheduler. Every request must include `X-Cron-Secret: <CRON_SECRET>`.
+
+### `POST /api/v1/cron/refresh-crypto-quotes`
+
+Refreshes current crypto prices for all 30 assets from CoinGecko `/coins/markets`. Runs every 5 minutes in production.
+
+With `USE_DEMO_DATA=true`, the command logs a skip message and returns immediately.
+
+```json
+{ "ok": true, "command": "refresh-crypto-quotes" }
+```
+
+If another instance of the same job is already running (PostgreSQL advisory lock held):
+
+```json
+{ "ok": false, "skipped": true, "message": "Job 'refresh-crypto-quotes' is already running on another instance" }
+```
+
+Returns `401 Unauthorized` if `X-Cron-Secret` is missing, empty, or incorrect.
+
+### `POST /api/v1/cron/refresh-history-and-scores`
+
+Runs stock EOD refresh, then 90-day crypto OHLCV history refresh, then recomputes all Exposure Scores. Intended to run Tuesday and Friday.
+
+```json
+{ "ok": true, "command": "refresh-history-and-scores" }
+```
+
+Same `401` / advisory-lock skip behaviour as above.
 
 ---
 

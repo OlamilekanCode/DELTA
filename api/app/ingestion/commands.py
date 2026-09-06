@@ -5,7 +5,9 @@ Usage:
     python -m app.ingestion.commands backfill
     python -m app.ingestion.commands refresh-crypto-quotes
     python -m app.ingestion.commands refresh-stock-eod
+    python -m app.ingestion.commands refresh-crypto-history
     python -m app.ingestion.commands recompute-scores
+    python -m app.ingestion.commands refresh-all
 """
 
 import argparse
@@ -14,7 +16,7 @@ import logging
 import os
 import sys
 import tempfile
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -32,7 +34,7 @@ log = logging.getLogger(__name__)
 
 
 def _try_lock(command_name: str) -> bool:
-    """Acquire a PID-file lock. Returns False if another instance is already running."""
+    """Acquire a PID-file lock for CLI use. Returns False if another instance is running."""
     lock_path = Path(tempfile.gettempdir()) / f"delta_{command_name}.lock"
     if lock_path.exists():
         try:
@@ -85,6 +87,7 @@ async def cmd_backfill() -> None:
                 log.info("%s: %d rows upserted", asset.symbol, n)
             except Exception:
                 log.exception("Failed to ingest %s — skipping, existing data preserved", asset.symbol)
+                await db.rollback()
 
 
 async def cmd_refresh_crypto_quotes() -> None:
@@ -140,10 +143,8 @@ async def cmd_refresh_crypto_quotes() -> None:
         log.info("Quotes persisted")
 
 
-async def cmd_refresh_stock_eod() -> None:
-    """Refresh EOD prices for all 8 stocks (weekdays only)."""
-    from datetime import date
-
+async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> None:
+    """Refresh EOD prices for all 8 stocks."""
     settings = get_settings()
     if settings.use_demo_data:
         log.info("USE_DEMO_DATA=true — skipping live stock refresh")
@@ -153,8 +154,7 @@ async def cmd_refresh_stock_eod() -> None:
         log.error("MARKETSTACK_API_KEY required")
         sys.exit(1)
 
-    today = date.today()
-    if today.weekday() >= 5:
+    if skip_weekends and date.today().weekday() >= 5:
         log.info("Weekend — skipping stock EOD refresh")
         return
 
@@ -168,6 +168,31 @@ async def cmd_refresh_stock_eod() -> None:
                 log.info("%s: %d rows upserted", stock.symbol, n)
             except Exception:
                 log.exception("Failed to refresh %s — skipping, existing data preserved", stock.symbol)
+                await db.rollback()
+
+
+async def cmd_refresh_crypto_history() -> None:
+    """Refresh 90-day OHLCV history for all 30 crypto assets from CoinGecko."""
+    settings = get_settings()
+    if settings.use_demo_data:
+        log.info("USE_DEMO_DATA=true — skipping live crypto history refresh")
+        return
+
+    if not settings.coingecko_api_key:
+        log.error("COINGECKO_API_KEY required")
+        sys.exit(1)
+
+    cg = CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
+    async with get_factory()() as db:
+        result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
+        crypto_assets = result.scalars().all()
+        for asset in crypto_assets:
+            try:
+                n = await ingest_asset(db, asset, cg)
+                log.info("%s: %d rows upserted", asset.symbol, n)
+            except Exception:
+                log.exception("Failed to refresh %s — skipping, existing data preserved", asset.symbol)
+                await db.rollback()
 
 
 async def cmd_recompute_scores() -> None:
@@ -177,21 +202,33 @@ async def cmd_recompute_scores() -> None:
         log.info("Stored %d exposure scores", n)
 
 
+async def cmd_refresh_all() -> None:
+    """Refresh stock EOD history, crypto OHLCV history, then recompute scores.
+
+    Runs all three operations in sequence.  Use this for the scheduled
+    Tuesday/Friday data refresh.  The Cloudflare Cron schedule controls
+    which days this runs — no weekday check is applied here.
+    """
+    await cmd_refresh_stock_eod(skip_weekends=False)
+    await cmd_refresh_crypto_history()
+    await cmd_recompute_scores()
+
+
+_COMMANDS = {
+    "backfill": cmd_backfill,
+    "refresh-crypto-quotes": cmd_refresh_crypto_quotes,
+    "refresh-stock-eod": cmd_refresh_stock_eod,
+    "refresh-crypto-history": cmd_refresh_crypto_history,
+    "recompute-scores": cmd_recompute_scores,
+    "refresh-all": cmd_refresh_all,
+}
+
+
 async def _run(cmd: str) -> None:
     settings = get_settings()
     init_db(settings.database_url)
     try:
-        if cmd == "backfill":
-            await cmd_backfill()
-        elif cmd == "refresh-crypto-quotes":
-            await cmd_refresh_crypto_quotes()
-        elif cmd == "refresh-stock-eod":
-            await cmd_refresh_stock_eod()
-        elif cmd == "recompute-scores":
-            await cmd_recompute_scores()
-        else:
-            log.error("Unknown command: %s", cmd)
-            sys.exit(1)
+        await _COMMANDS[cmd]()
     finally:
         await get_engine().dispose()
 
@@ -200,7 +237,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="DELTA ingestion commands")
     parser.add_argument(
         "command",
-        choices=["backfill", "refresh-crypto-quotes", "refresh-stock-eod", "recompute-scores"],
+        choices=list(_COMMANDS),
         help="Command to run",
     )
     args = parser.parse_args()

@@ -20,7 +20,7 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { symbol } = await params;
   return {
-    title: `${symbol.toUpperCase()} — Synthetic Exposure`,
+    title: `${symbol.toUpperCase()} — DELTA`,
     description: `Price history, Exposure Scores and methodology for ${symbol.toUpperCase()}.`,
   };
 }
@@ -139,6 +139,7 @@ export default async function AssetPage({ params }: Props) {
                 <FreshnessLabel
                   isDemo={asset.is_demo ?? null}
                   provider={asset.quote_provider ?? (asset.asset_type === "stock" ? "marketstack" : "coingecko")}
+                  ts={asset.asset_type === "crypto" ? (asset.quote_ts ?? null) : null}
                   date={asset.last_price_date}
                 />
               </div>

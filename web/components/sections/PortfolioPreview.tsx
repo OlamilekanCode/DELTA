@@ -63,10 +63,10 @@ export default function PortfolioPreview() {
               </span>
             </h2>
             <p className="mt-6 max-w-sm font-mono text-sm leading-relaxed text-muted">
-              Connect a wallet and Synthetic Exposure reads your public on-chain holdings — read-only, no transaction required. See your category exposure and weighted stock correlation score.
+              Portfolio exposure analysis is coming soon. Connect your wallet to verify your $DELTA balance — you&apos;ll be among the first to access it when it launches.
             </p>
 
-            {/* Weighted score callout */}
+            {/* Weighted score callout — demo preview */}
             <div
               className="mt-8 inline-flex items-center gap-4 rounded-2xl border px-6 py-4"
               style={{
@@ -87,7 +87,7 @@ export default function PortfolioPreview() {
               <DemoDataBadge />
             </div>
 
-            <div className="mt-8">
+            <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link
                 href="/portfolio"
                 className="inline-flex items-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold text-white transition-all active:scale-95"
@@ -96,11 +96,14 @@ export default function PortfolioPreview() {
                   boxShadow: "0 0 24px rgba(109,74,255,0.35)",
                 }}
               >
-                Connect wallet to analyze
+                Connect wallet
                 <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
                 </svg>
               </Link>
+              <span className="rounded-full border border-amber/30 bg-amber/10 px-3 py-1.5 font-mono text-xs font-medium text-amber">
+                Coming soon
+              </span>
             </div>
           </motion.div>
 

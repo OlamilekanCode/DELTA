@@ -20,10 +20,10 @@ export default function Footer() {
           <div>
             <div className="flex items-center gap-2">
               <DeltaLogo size={22} />
-              <span className="font-heading text-xl font-bold text-violet">Synthetic Exposure</span>
+              <span className="font-heading text-xl font-bold text-violet">DELTA</span>
             </div>
             <p className="mt-2 max-w-xs text-sm text-muted">
-              Synthetic Exposure — map how stocks and crypto move together using historical market data.
+              Synthetic Exposure — map how stocks and crypto move together.
             </p>
           </div>
 
@@ -64,7 +64,7 @@ export default function Footer() {
 
         <div className="mt-8 border-t border-white/[0.09] pt-5 sm:mt-12 sm:pt-8">
           <p className="text-xs text-muted">
-            © 2026 Synthetic Exposure. Not investment advice. Exposure Scores reflect historical correlation only.
+            © 2026 DELTA — Synthetic Exposure. Not investment advice. Exposure Scores reflect historical correlation only.
           </p>
         </div>
       </div>

@@ -5,14 +5,13 @@ import { motion, useReducedMotion } from "framer-motion";
 type FeatureStatus = "available" | "soon" | "future";
 
 const features: { label: string; status: FeatureStatus; note: string; desc: string }[] = [
-  { label: "Advanced Exposure Scores",  status: "available", note: "Available with $DELTA", desc: "Full precision score across all supported assets" },
-  { label: "Deeper Graph Levels",       status: "available", note: "Available with $DELTA", desc: "Expand beyond top-10 connections" },
-  { label: "Portfolio Exposure",        status: "available", note: "Available with $DELTA", desc: "Wallet-level exposure breakdown and weighted score" },
+  { label: "Exposure Scores",           status: "available", note: "Live now",              desc: "0–1 Pearson correlation score across 8 stocks × 30 crypto" },
+  { label: "Exposure Graph",            status: "available", note: "Live now",              desc: "Interactive graph of stock ↔ crypto relationships" },
+  { label: "Price History",             status: "available", note: "Live now",              desc: "90-day daily OHLCV for all assets in the universe" },
+  { label: "Portfolio Exposure",        status: "soon",      note: "Coming soon",           desc: "Wallet-level exposure breakdown and weighted score" },
+  { label: "Advanced Exposure Scores",  status: "soon",      note: "Coming soon",           desc: "Extended universe, finer precision, longer lookback windows" },
+  { label: "Deeper Graph Levels",       status: "soon",      note: "Coming soon",           desc: "Expand beyond top-12 connections per stock" },
   { label: "Real-Time Alerts",          status: "soon",      note: "Coming soon",           desc: "Score change notifications" },
-  { label: "Live Score Updates",        status: "soon",      note: "Coming soon",           desc: "Intraday recalculation as markets move" },
-  { label: "Live Price Feeds",          status: "soon",      note: "Coming soon",           desc: "Streaming prices across TradFi and crypto" },
-  { label: "Live Graph Movement",       status: "soon",      note: "Coming soon",           desc: "Real-time edge animations in the Exposure Graph" },
-  { label: "More Assets & Chains",      status: "soon",      note: "Coming soon",           desc: "Expand to ETH, SOL, and L2 ecosystems" },
   { label: "Automated Baskets",         status: "future",    note: "Future",                desc: "Thematic index baskets by exposure cluster" },
   { label: "Developer API",             status: "future",    note: "Future",                desc: "REST API for programmatic access" },
 ];

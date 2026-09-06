@@ -89,6 +89,38 @@ async def _upsert_quote(
     is_demo: bool,
     ts: datetime,
 ) -> None:
+    """Insert or update the single quote row for an asset.
+
+    On PostgreSQL: uses INSERT … ON CONFLICT DO UPDATE for atomic, concurrency-safe
+    upsert.  The unique constraint on asset_id (added by migration 0004) is the
+    conflict target.
+
+    On SQLite (development / tests): falls back to SELECT-then-UPDATE-or-INSERT.
+    SQLite is single-process so there is no concurrent-write risk.
+    """
+    dialect = get_engine().dialect.name
+
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        fields = dict(
+            price_usd=price_usd,
+            market_cap_usd=market_cap_usd,
+            volume_24h_usd=volume_24h_usd,
+            change_24h_pct=change_24h_pct,
+            provider=provider,
+            is_demo=is_demo,
+            ts=ts,
+        )
+        stmt = pg_insert(AssetQuote).values(asset_id=asset_id, **fields)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["asset_id"],
+            set_=fields,
+        )
+        await db.execute(stmt)
+        return
+
+    # SQLite path
     result = await db.execute(
         select(AssetQuote).where(AssetQuote.asset_id == asset_id)
     )

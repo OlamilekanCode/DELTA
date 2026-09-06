@@ -7,11 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 import app.models  # noqa: F401 — register all ORM models with Base
 from app.config import get_settings
 from app.database import Base, get_engine, init_db
-from app.routers import assets, correlation, exposures, graphs, health
+from app.routers import assets, correlation, cron, exposures, graphs, health
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
     init_db(settings.database_url)
 
@@ -19,11 +19,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await conn.run_sync(Base.metadata.create_all)
 
     if settings.use_demo_data:
+        from sqlalchemy import func, select
+
         from app.database import get_factory
         from app.ingestion.runner import seed_fixture_data
+        from app.models.exposure_score import StoredExposureScore
+        from app.services.scoring import recompute_all_scores
 
         async with get_factory()() as db:
             await seed_fixture_data(db)
+            # Pre-compute scores on first run so HTTP routes never block.
+            # Skip if scores already exist (e.g. test DB seeded by the db fixture).
+            count_result = await db.execute(
+                select(func.count()).select_from(StoredExposureScore)
+            )
+            if (count_result.scalar() or 0) == 0:
+                await recompute_all_scores(db)
 
     yield
 
@@ -33,7 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
-        title="Synthetic Exposure API",
+        title="DELTA — Synthetic Exposure API",
         version="3.0.0",
         description="Stock ↔ Crypto Exposure Layer",
         lifespan=lifespan,
@@ -52,6 +63,7 @@ def create_app() -> FastAPI:
     application.include_router(correlation.router, prefix="/api/v1")
     application.include_router(exposures.router, prefix="/api/v1")
     application.include_router(graphs.router, prefix="/api/v1")
+    application.include_router(cron.router, prefix="/api/v1")
 
     return application
 

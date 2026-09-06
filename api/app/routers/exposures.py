@@ -7,10 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
-from app.models.price import DailyPrice
 from app.schemas.correlation import ExposureScoreOut, StockInfo
 from app.schemas.exposures import ExposuresResult
-from app.services.scoring import recompute_all_scores
 
 router = APIRouter()
 
@@ -38,36 +36,19 @@ async def get_exposures(
     )
     stored = stored_result.scalars().all()
 
-    # Compute on-demand and cache if no stored scores exist
-    if not stored:
-        await recompute_all_scores(db)
-        stored_result2 = await db.execute(
-            select(StoredExposureScore)
-            .where(StoredExposureScore.stock_id == stock.id)
-            .order_by(StoredExposureScore.score.desc())
-        )
-        stored = stored_result2.scalars().all()
-
     computed_at: datetime | None = stored[0].computed_at if stored else None
     stale = False
     if computed_at:
         age = datetime.now(UTC) - computed_at.replace(tzinfo=UTC)
         stale = age > timedelta(hours=_STALE_HOURS)
 
+    # is_demo is stored per-pair in stored_exposure_scores.
+    # A result set is demo when any individual pair used fixture data.
     is_demo = any(s.is_demo for s in stored) if stored else True
 
     crypto_ids = [s.crypto_id for s in stored]
     crypto_result = await db.execute(select(Asset).where(Asset.id.in_(crypto_ids)))
     crypto_by_id = {a.id: a for a in crypto_result.scalars().all()}
-
-    # Determine demo from actual price rows when stored scores say is_demo=True
-    if is_demo:
-        any_demo = await db.execute(
-            select(DailyPrice.is_demo)
-            .where(DailyPrice.asset_id == stock.id, DailyPrice.is_demo == True)  # noqa: E712
-            .limit(1)
-        )
-        is_demo = any_demo.scalar() is True
 
     scores: list[ExposureScoreOut] = []
     for s in stored:

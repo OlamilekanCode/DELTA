@@ -1,6 +1,6 @@
-# Synthetic Exposure
+# DELTA — Synthetic Exposure
 
-Synthetic Exposure maps historical correlations between stocks and crypto assets through an interactive Exposure Graph and a 0–1 Exposure Score. The `$DELTA` utility token gates advanced features: deeper graph analysis, portfolio exposure breakdown, and detailed score history.
+DELTA maps historical correlations between stocks and crypto assets through an interactive Exposure Graph and a 0–1 Exposure Score. The `$DELTA` utility token gates future advanced features.
 
 ---
 
@@ -63,14 +63,20 @@ With `USE_DEMO_DATA=true` (the default), the API seeds deterministic fixture dat
 # Seed or backfill 90 days of price history
 python -m app.ingestion.commands backfill
 
-# Refresh current crypto prices (CoinGecko /coins/markets — 1 request for all assets)
+# Refresh current crypto prices from CoinGecko (1 batch request)
 python -m app.ingestion.commands refresh-crypto-quotes
+
+# Refresh 90-day OHLCV history for all crypto assets
+python -m app.ingestion.commands refresh-crypto-history
 
 # Refresh stock EOD prices (weekdays only)
 python -m app.ingestion.commands refresh-stock-eod
 
 # Recompute and store all Exposure Scores
 python -m app.ingestion.commands recompute-scores
+
+# Combined: stock EOD + crypto history + score recomputation
+python -m app.ingestion.commands refresh-all
 ```
 
 ---
@@ -85,6 +91,7 @@ All variables are documented in `.env.example`. Key values:
 | `MARKETSTACK_API_KEY` | Stock price data (`USE_DEMO_DATA=false`) |
 | `COINGECKO_API_KEY` | Crypto price data (`USE_DEMO_DATA=false`) |
 | `COINGECKO_API_TYPE` | `demo` (default) or `pro` |
+| `CRON_SECRET` | Authenticate scheduled job endpoints |
 | `NEXT_PUBLIC_API_BASE_URL` | Frontend → backend URL |
 | `NEXT_PUBLIC_REOWN_PROJECT_ID` | Wallet connection (AppKit) |
 | `NEXT_PUBLIC_DELTA_TOKEN_ADDRESS` | `$DELTA` token contract address |
@@ -95,45 +102,44 @@ All variables are documented in `.env.example`. Key values:
 
 ## Deployment
 
-### Frontend (Vercel)
+### Frontend — Vercel
 
-Set `NEXT_PUBLIC_API_BASE_URL` to your backend URL in the Vercel project settings. All other `NEXT_PUBLIC_*` variables must also be set there.
+Set all `NEXT_PUBLIC_*` variables in the Vercel project settings. No build command override needed; the default `npm run build` works.
+
+### Backend — Render
 
 ```bash
 # Build command
-npm run build
-
-# Output directory
-.next
-```
-
-### Backend (Railway)
-
-```bash
-# Build
 pip install -r requirements.txt
 
-# Migrate (run once after each deploy)
-alembic upgrade head
-
-# Start
-uvicorn app.main:app --host 0.0.0.0 --port $PORT
+# Pre-deploy / start command (run migrate before starting)
+alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
-Scheduled refresh via Railway cron:
+Set all backend secrets in Render's environment panel.
 
-```bash
-# Every hour — crypto quotes
-python -m app.ingestion.commands refresh-crypto-quotes
+### Database — Neon (PostgreSQL)
 
-# Daily (weekdays) — stock EOD
-python -m app.ingestion.commands refresh-stock-eod
+Set `DATABASE_URL` to the Neon connection string (use the pooled URL for the API, the direct URL for `alembic upgrade head`).
 
-# Daily — recompute scores
-python -m app.ingestion.commands recompute-scores
-```
+### Scheduler — Cloudflare Cron
 
-Set all secrets in Railway's environment panel. Never commit `.env` files with real values.
+Cloudflare Cron calls the protected HTTP endpoints on a schedule:
+
+| Schedule | Endpoint | Purpose |
+|----------|----------|---------|
+| Every 5 minutes | `POST /api/v1/cron/refresh-crypto-quotes` | Current crypto prices |
+| Tuesday + Friday | `POST /api/v1/cron/refresh-history-and-scores` | OHLCV history + score recompute |
+
+Each request must carry `X-Cron-Secret: <CRON_SECRET>`. Set the same value in both the Render environment and the Cloudflare Cron HTTP trigger header.
+
+---
+
+## Asset universe
+
+**8 stocks**: NVDA, TSLA, COIN, MSTR, AMD, MSFT, META, PLTR
+
+**30 crypto assets** across 7 categories: Layer 1, Layer 2, DeFi, Oracle/Data, AI/Compute, Storage, Memecoin. See [docs/methodology.md](docs/methodology.md) for the full list.
 
 ---
 
@@ -144,25 +150,15 @@ Set all secrets in Railway's environment panel. Never commit `.env` files with r
 | Frontend | Next.js 16 (App Router), TypeScript, Tailwind CSS |
 | Animation | Framer Motion |
 | Graph | @xyflow/react |
-| Charts | lightweight-charts v5 (dynamic import) |
+| Charts | lightweight-charts v5 |
 | Wallet | Reown AppKit, Wagmi, Viem |
 | Backend | Python FastAPI, Pydantic v2 |
-| Database | PostgreSQL, SQLAlchemy 2 async, Alembic |
+| Database | PostgreSQL (Neon), SQLAlchemy 2 async, Alembic |
 | Providers | CoinGecko (crypto), Marketstack (stocks) |
-| Hosting | Railway (API + DB + cron), Vercel (frontend) |
-
----
-
-## Upcoming features
-
-- Portfolio exposure breakdown (requires `$DELTA` balance)
-- Real-time score updates as intraday prices move
-- Live price feeds across all 38 assets
-- Expanded asset universe (additional chains and equity sectors)
-- Real-time alerts on significant score changes
+| Hosting | Render (API), Vercel (frontend), Cloudflare Cron (scheduler) |
 
 ---
 
 ## Disclaimer
 
-Synthetic Exposure Scores are for informational purposes only and do not constitute investment advice. See `/methodology` for the full methodology. Synthetic Exposure does not custody assets, operate an exchange, or guarantee equivalent asset performance.
+DELTA Exposure Scores are for informational purposes only and do not constitute investment advice. See [/methodology](/methodology) for the full methodology. DELTA does not custody assets, operate an exchange, or guarantee equivalent asset performance.

@@ -4,6 +4,7 @@ import os
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 os.environ.setdefault("USE_DEMO_DATA", "true")
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000")
+os.environ.setdefault("CRON_SECRET", "test-cron-secret-xyz")
 
 import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from app.database import Base, get_db, init_db  # noqa: E402
 from app.ingestion.runner import seed_fixture_data  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services.scoring import recompute_all_scores  # noqa: E402
 
 TEST_DB_URL = os.environ["DATABASE_URL"]
 
@@ -32,6 +34,10 @@ async def db():
 
     async with factory() as session:
         await seed_fixture_data(session)
+        # Pre-compute scores so HTTP endpoint tests don't get empty results.
+        # The lifespan skips recompute when scores already exist (count > 0),
+        # avoiding a redundant second run per test.
+        await recompute_all_scores(session)
         yield session
 
     async with engine.begin() as conn:

@@ -32,13 +32,13 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Synthetic Exposure — Map the Market",
+  title: "DELTA — Synthetic Exposure",
   description:
-    "Synthetic Exposure maps how stocks and crypto move together using historical market data. Discover which crypto assets have historically tracked any stock ticker.",
+    "DELTA maps how stocks and crypto move together using historical market data. Discover which crypto assets have historically tracked any stock ticker.",
   keywords: ["stock crypto correlation", "exposure score", "stock crypto", "market analytics"],
   icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
   openGraph: {
-    title: "Synthetic Exposure — Map the Market",
+    title: "DELTA — Synthetic Exposure",
     description:
       "See how any stock and crypto move together. Explore Exposure Scores and interactive market graphs.",
     type: "website",
