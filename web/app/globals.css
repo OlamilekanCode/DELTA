@@ -13,8 +13,8 @@
   --color-amber:        #F4C95D;
   --color-danger:       #FF5D73;
   --color-text:         #F0F2FF;
-  --color-muted:        #6B7280;
-  --color-subtle:       #374151;
+  --color-muted:        #9AA3B8;
+  --color-subtle:       #5A6580;
 
   /* ── Typography ──────────────────────────────────────── */
   --font-heading: var(--font-space-grotesk), "Inter Tight", sans-serif;
