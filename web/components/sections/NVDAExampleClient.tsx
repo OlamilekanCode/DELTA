@@ -200,41 +200,49 @@ export default function NVDAExampleClient({ scores, chartData, isDemo }: Props) 
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.25 }}
           >
-            <p className="font-mono text-xs font-medium uppercase tracking-widest text-muted">
-              Top Exposure Scores
-            </p>
-            {scores.map((s, i) => {
-              const cat = CATEGORY_COLORS[s.category] ?? { text: "#9B7BFF", bg: "rgba(155,123,255,0.08)", border: "rgba(155,123,255,0.25)" };
-              return (
-                <motion.article
-                  key={s.symbol}
-                  className="rounded-xl border border-white/[0.09] bg-panel p-4 transition-colors hover:border-violet/30 hover:bg-panel2"
-                  initial={reduced ? false : { opacity: 0, y: 10 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.4, delay: 0.3 + i * 0.06 }}
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-medium text-text">{s.symbol}</span>
-                      <span
-                        className="rounded-full px-1.5 py-0.5 font-mono text-[10px]"
-                        style={{ color: cat.text, background: cat.bg }}
-                      >
-                        {s.category}
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-xs font-medium uppercase tracking-widest text-muted">
+                Top Exposure Scores
+              </p>
+              <p className="font-mono text-[10px] text-muted">
+                Top {Math.min(scores.length, 10)} of {scores.length}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 overflow-y-auto pr-1" style={{ maxHeight: 480 }}>
+              {scores.slice(0, 10).map((s, i) => {
+                const cat = CATEGORY_COLORS[s.category] ?? { text: "#9B7BFF", bg: "rgba(155,123,255,0.08)", border: "rgba(155,123,255,0.25)" };
+                return (
+                  <motion.article
+                    key={s.symbol}
+                    className="rounded-xl border border-white/[0.09] bg-panel p-4 transition-colors hover:border-violet/30 hover:bg-panel2"
+                    initial={reduced ? false : { opacity: 0, y: 10 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.4, delay: 0.3 + i * 0.06 }}
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-medium text-text">{s.symbol}</span>
+                        <span
+                          className="rounded-full px-1.5 py-0.5 font-mono text-[10px]"
+                          style={{ color: cat.text, background: cat.bg }}
+                        >
+                          {s.category}
+                        </span>
+                      </div>
+                      <span className="font-mono text-sm font-bold" style={{ color: cat.text }}>
+                        {s.score.toFixed(2)}
                       </span>
                     </div>
-                    <span className="font-mono text-sm font-bold" style={{ color: cat.text }}>
-                      {s.score.toFixed(2)}
-                    </span>
-                  </div>
-                  <ScoreBar value={s.score} color={cat.text} />
-                  <p className="mt-1.5 font-mono text-xs text-muted">
-                    {s.observations} observations
-                  </p>
-                </motion.article>
-              );
-            })}
+                    <ScoreBar value={s.score} color={cat.text} />
+                    <p className="mt-1.5 font-mono text-xs text-muted">
+                      {s.observations} observations
+                    </p>
+                  </motion.article>
+                );
+              })}
+            </div>
           </motion.div>
         </div>
       </div>

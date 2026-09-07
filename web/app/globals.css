@@ -156,5 +156,6 @@ main > section::before {
 }
 
 /* ── Scrollbar ───────────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; background: transparent; }
+::-webkit-scrollbar { width: 4px; background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(109, 74, 255, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(109, 74, 255, 0.5); }
