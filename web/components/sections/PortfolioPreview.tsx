@@ -63,7 +63,7 @@ export default function PortfolioPreview() {
               </span>
             </h2>
             <p className="mt-6 max-w-sm font-mono text-sm leading-relaxed text-muted">
-              Portfolio exposure analysis is coming soon. Connect your wallet to verify your $DELTA balance — you&apos;ll be among the first to access it when it launches.
+              Portfolio exposure analysis is coming soon. Connect your wallet to verify your $SynthEx balance — you&apos;ll be among the first to access it when it launches.
             </p>
 
             {/* Weighted score callout — demo preview */}

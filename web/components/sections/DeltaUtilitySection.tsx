@@ -43,7 +43,7 @@ export default function DeltaUtilitySection() {
             transition={{ duration: 0.6 }}
           >
             <p className="mb-4 font-mono text-xs font-medium uppercase tracking-[0.25em] text-violet">
-              $DELTA utility token
+              $SynthEx · Main Access Token
             </p>
             <h2
               id="delta-utility-heading"
@@ -71,7 +71,7 @@ export default function DeltaUtilitySection() {
             transition={{ duration: 0.6, delay: 0.1 }}
           >
             <p className="max-w-sm font-mono text-sm leading-relaxed text-muted">
-              Hold $DELTA to unlock advanced analytics when they launch. Free users can explore the public Exposure Scores and Graph today.
+              Hold $SynthEx to unlock advanced analytics when they launch. Free users can explore the public Exposure Scores and Graph today.
             </p>
           </motion.div>
         </div>

@@ -17,7 +17,7 @@ export default function PortfolioGate() {
           Portfolio Exposure
         </h1>
         <p className="max-w-sm font-mono text-sm leading-relaxed text-muted">
-          Connect your wallet to check your $DELTA balance and unlock portfolio exposure analysis.
+          Connect your wallet to check your $SynthEx balance and unlock portfolio exposure analysis.
         </p>
         <ConnectWalletButton className="px-6 py-3 text-base" />
         <Link href="/" className="font-mono text-xs text-muted/60 underline-offset-4 hover:text-muted hover:underline">
@@ -32,10 +32,10 @@ export default function PortfolioGate() {
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-4 text-center">
         <TokenIcon />
         <h1 className="font-heading text-3xl font-bold text-text sm:text-4xl">
-          $DELTA Required
+          $SynthEx Required
         </h1>
         <p className="max-w-sm font-mono text-sm leading-relaxed text-muted">
-          Portfolio exposure analysis is available to $DELTA token holders. Acquire $DELTA to unlock access.
+          Portfolio exposure analysis is available to $SynthEx token holders. Acquire $SynthEx to unlock access.
         </p>
         <p className="font-mono text-xs text-muted/50">
           Analytical tool · Not financial advice
@@ -48,7 +48,7 @@ export default function PortfolioGate() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-xl bg-violet px-6 py-3 text-sm font-bold text-white transition-all hover:bg-violet/90 active:scale-95"
             >
-              Get $DELTA
+              Get $SynthEx
               <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
               </svg>
@@ -69,7 +69,7 @@ export default function PortfolioGate() {
         Portfolio Exposure
       </h1>
       <p className="max-w-sm font-mono text-sm leading-relaxed text-muted">
-        Full portfolio analysis is coming soon. Your $DELTA balance has been verified — you&apos;ll be among the first to access it.
+        Full portfolio analysis is coming soon. Your $SynthEx balance has been verified — you&apos;ll be among the first to access it.
       </p>
       <Link href="/#nvda-example" className="font-mono text-sm text-violet-light underline-offset-4 hover:underline">
         Explore the NVDA example →
