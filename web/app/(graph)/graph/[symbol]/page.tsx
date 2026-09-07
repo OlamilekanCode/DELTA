@@ -32,7 +32,8 @@ export default async function GraphPage({ params }: Props) {
   return (
     <div className="flex h-screen flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-6 py-3 sm:px-10 lg:px-16">
+      <div className="border-b border-white/[0.07]">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
         <div className="flex items-center gap-3">
           <Link
             href={`/asset/${sym}`}
@@ -61,6 +62,7 @@ export default async function GraphPage({ params }: Props) {
             Methodology
           </Link>
         </div>
+      </div>
       </div>
 
       {/* Graph canvas */}

@@ -236,7 +236,7 @@ export default function HeroSection() {
           backdropFilter: "blur(16px)",
         }}
       >
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-3 sm:px-10 lg:px-16">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
           {/* Token identity */}
           <div className="flex items-center gap-3">
             <motion.span
