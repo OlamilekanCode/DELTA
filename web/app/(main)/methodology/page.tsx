@@ -168,6 +168,18 @@ export default function MethodologyPage() {
           conduct your own research before making any financial decision.
         </p>
       </div>
+
+      {/* $SynthEx token callout */}
+      <div className="mt-8 rounded-2xl border border-violet/20 bg-violet/[0.05] p-6">
+        <div className="mb-2 flex items-center gap-2">
+          <div className="size-1.5 rounded-full bg-violet" />
+          <span className="font-mono text-xs font-bold uppercase tracking-widest text-violet-light">$SynthEx · Main Access Token</span>
+        </div>
+        <p className="text-sm leading-relaxed text-muted">
+          Advanced analytics — including extended lookback windows, deeper graph levels, and wallet portfolio exposure — are gated behind the{" "}
+          <strong className="text-violet-light">$SynthEx</strong> token. Hold $SynthEx to unlock premium features when they launch.
+        </p>
+      </div>
     </div>
   );
 }

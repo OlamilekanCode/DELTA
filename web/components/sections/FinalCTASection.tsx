@@ -74,8 +74,33 @@ export default function FinalCTASection() {
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.15 }}
           >
-            Explore the free NVDA example, then connect your wallet to unlock the full platform.
+            Explore the free NVDA example. Hold{" "}
+            <span className="font-semibold text-violet-light">$SynthEx</span>{" "}
+            to unlock premium analytics and portfolio exposure when they launch.
           </motion.p>
+
+          {/* $SynthEx token badge */}
+          <motion.div
+            className="mt-6 inline-flex items-center gap-3 rounded-2xl border px-5 py-3"
+            style={{
+              borderColor: "rgba(109,74,255,0.3)",
+              background: "rgba(109,74,255,0.08)",
+            }}
+            initial={reduced ? false : { opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5, delay: 0.18 }}
+          >
+            <motion.span
+              className="size-2 rounded-full bg-violet"
+              animate={reduced ? {} : { opacity: [1, 0.3, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              aria-hidden="true"
+            />
+            <span className="font-mono text-sm font-bold text-violet-light">$SynthEx</span>
+            <span className="text-white/20">·</span>
+            <span className="font-mono text-xs text-muted">Main Access Token</span>
+          </motion.div>
 
           {/* CTAs */}
           <motion.div

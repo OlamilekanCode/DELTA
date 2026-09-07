@@ -86,7 +86,18 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-8 border-t border-white/[0.09] pt-5 sm:mt-12 sm:pt-8">
+        {/* $SynthEx token strip */}
+        <div className="mt-8 rounded-xl border border-violet/[0.15] bg-violet/[0.04] px-4 py-3 sm:mt-12">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="font-mono text-xs font-bold text-violet-light">$SynthEx</span>
+            <span className="text-white/20">·</span>
+            <span className="font-mono text-xs text-muted">Main Access Token</span>
+            <span className="text-white/20">·</span>
+            <span className="font-mono text-xs text-muted">Hold $SynthEx to unlock premium analytics &amp; portfolio exposure</span>
+          </div>
+        </div>
+
+        <div className="mt-5 border-t border-white/[0.09] pt-5">
           <p className="text-xs text-muted">
             © 2026 Synthetic Exposure. Not investment advice. Exposure Scores reflect historical correlation only.
           </p>

@@ -47,7 +47,7 @@ const bullets = [
       </svg>
     ),
     title: "Portfolio Insights",
-    body: "Wallet-level exposure analysis",
+    body: "Hold $SynthEx to unlock premium analytics",
   },
 ];
 
@@ -89,12 +89,12 @@ export default function HeroSection() {
 
       {/* Bottom fade */}
       <div
-        className="pointer-events-none absolute bottom-0 inset-x-0 h-40"
+        className="pointer-events-none absolute bottom-0 inset-x-0 h-24"
         aria-hidden="true"
-        style={{ background: "linear-gradient(to bottom, transparent, #030508)" }}
+        style={{ background: "linear-gradient(to bottom, transparent, rgba(3,5,8,0.7))" }}
       />
 
-      <div className="relative mx-auto flex flex-1 flex-col justify-center max-w-7xl w-full px-4 pt-24 pb-12 sm:px-6 sm:pt-28 sm:pb-16 lg:px-8 lg:pt-32">
+      <div className="relative mx-auto flex flex-1 flex-col justify-center max-w-7xl w-full px-4 py-8 sm:px-6 sm:py-12 lg:px-8">
         <div className="grid grid-cols-1 gap-8 sm:gap-10 lg:grid-cols-[44%_56%] lg:gap-8 lg:items-center">
 
           {/* ── Left: Copy ── */}
@@ -224,6 +224,42 @@ export default function HeroSection() {
           >
             <HeroGraph />
           </motion.div>
+        </div>
+      </div>
+
+      {/* ── $SynthEx CA strip — full viewport width ── */}
+      <div
+        className="relative z-10 w-full border-t"
+        style={{
+          borderColor: "rgba(109,74,255,0.25)",
+          background: "rgba(6,8,16,0.92)",
+          backdropFilter: "blur(16px)",
+        }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
+          {/* Token identity */}
+          <div className="flex items-center gap-3">
+            <motion.span
+              className="size-2 shrink-0 rounded-full bg-violet"
+              animate={reduced ? {} : { opacity: [1, 0.3, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              aria-hidden="true"
+            />
+            <span className="font-mono text-sm font-bold text-violet-light">$SynthEx</span>
+            <span className="text-white/20">·</span>
+            <span className="font-mono text-xs text-muted">Main Access Token</span>
+          </div>
+
+          {/* CA placeholder — user will fill in */}
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-muted">CA:</span>
+            <span className="font-mono text-xs font-semibold text-violet-light/70">—</span>
+          </div>
+
+          {/* Right tagline */}
+          <p className="hidden font-mono text-xs text-muted lg:block">
+            Hold <span className="font-semibold text-violet-light">$SynthEx</span> · Unlock premium analytics &amp; portfolio exposure
+          </p>
         </div>
       </div>
     </section>
