@@ -149,7 +149,7 @@ export default function AssetGrid({ assets }: AssetGridProps) {
           />
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {(["all", "stock", "crypto"] as TypeFilter[]).map((t) => (
             <button
               key={t}

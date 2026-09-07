@@ -48,7 +48,7 @@ export default function DeltaUtilitySection() {
             <h2
               id="delta-utility-heading"
               className="font-heading font-bold leading-[0.92] text-text"
-              style={{ fontSize: "clamp(2.4rem, 5vw, 4rem)" }}
+              style={{ fontSize: "clamp(1.8rem, 5vw, 4rem)" }}
             >
               Unlock deeper<br />
               <span

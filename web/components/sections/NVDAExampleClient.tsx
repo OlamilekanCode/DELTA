@@ -116,7 +116,7 @@ export default function NVDAExampleClient({ scores, chartData, isDemo }: Props) 
 
         {/* Big score display row */}
         <motion.div
-          className="my-12 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/[0.09] sm:grid-cols-4"
+          className="my-6 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/[0.09] sm:my-12 sm:grid-cols-4"
           style={{ background: "rgba(255,255,255,0.05)" }}
           initial={reduced ? false : { opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -144,7 +144,7 @@ export default function NVDAExampleClient({ scores, chartData, isDemo }: Props) 
                 >
                   {s.score.toFixed(2)}
                 </motion.span>
-                <span className="font-mono text-base font-medium text-text">{s.symbol}</span>
+                <span className="font-mono text-sm font-medium text-text sm:text-base">{s.symbol}</span>
                 <span
                   className="rounded-full px-2 py-0.5 font-mono text-[10px] font-medium"
                   style={{ color: cat.text, background: cat.bg, border: `1px solid ${cat.border}` }}

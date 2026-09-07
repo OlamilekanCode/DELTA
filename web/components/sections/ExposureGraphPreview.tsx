@@ -139,7 +139,7 @@ export default function ExposureGraphPreview() {
               type="button"
               onClick={() => setActiveCategory(cat)}
               aria-pressed={activeCategory === cat}
-              className="rounded-full border px-3 py-1 font-mono text-xs font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet sm:px-4 sm:py-1.5"
+              className="rounded-full border px-3 py-2 font-mono text-xs font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet sm:px-4 sm:py-2"
               style={
                 activeCategory === cat
                   ? { borderColor: "#6D4AFF", background: "rgba(109,74,255,0.2)", color: "#9B7BFF" }
@@ -155,7 +155,7 @@ export default function ExposureGraphPreview() {
           {/* SVG Graph */}
           <motion.div
             className="lg:col-span-2 overflow-hidden rounded-2xl border border-white/[0.09] bg-panel"
-            style={{ height: "clamp(260px, 50vw, 400px)" }}
+            style={{ height: "clamp(220px, 60vw, 400px)" }}
             initial={reduced ? false : { opacity: 0, scale: 0.98 }}
             whileInView={{ opacity: 1, scale: 1 }}
             viewport={{ once: true }}

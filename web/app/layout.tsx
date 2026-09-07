@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import type React from "react";
 import { Space_Grotesk, Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
-import Navigation from "@/components/nav/Navigation";
-import Footer from "@/components/shared/Footer";
 import MouseGlow from "@/components/shared/MouseGlow";
 import Web3Provider from "@/components/providers/Web3Provider";
 
@@ -43,6 +41,12 @@ export const metadata: Metadata = {
       "See how any stock and crypto move together. Explore Exposure Scores and interactive market graphs.",
     type: "website",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Synthetic Exposure",
+    description:
+      "See how any stock and crypto move together. Explore Exposure Scores and interactive market graphs.",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -51,12 +55,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       className={`${spaceGrotesk.variable} ${inter.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-bg text-text font-body">
+      <body className="min-h-full bg-bg text-text font-body">
         <Web3Provider>
           <MouseGlow />
-          <Navigation />
-          <main className="flex-1">{children}</main>
-          <Footer />
+          {children}
         </Web3Provider>
       </body>
     </html>

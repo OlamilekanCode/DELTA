@@ -57,7 +57,7 @@ export default function FinalCTASection() {
           <motion.h2
             id="cta-heading"
             className="font-heading font-bold leading-[0.9] text-white"
-            style={{ fontSize: "clamp(3rem, 9vw, 7rem)" }}
+            style={{ fontSize: "clamp(2.2rem, 7vw, 7rem)" }}
             initial={reduced ? false : { opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}

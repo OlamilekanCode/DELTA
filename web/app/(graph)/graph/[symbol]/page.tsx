@@ -30,7 +30,7 @@ export default async function GraphPage({ params }: Props) {
   }
 
   return (
-    <div className="flex h-[calc(100vh-64px)] flex-col">
+    <div className="flex h-screen flex-col">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3">
@@ -47,7 +47,7 @@ export default async function GraphPage({ params }: Props) {
           <h1 className="font-mono text-sm font-semibold text-text">Exposure Graph</h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {graphData && (
             <FreshnessLabel isDemo={graphData.demo} />
           )}
@@ -56,7 +56,7 @@ export default async function GraphPage({ params }: Props) {
           </span>
           <Link
             href="/methodology"
-            className="font-mono text-xs text-muted/60 transition-colors hover:text-muted"
+            className="hidden font-mono text-xs text-muted/60 transition-colors hover:text-muted sm:inline"
           >
             Methodology
           </Link>

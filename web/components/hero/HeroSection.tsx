@@ -124,7 +124,7 @@ export default function HeroSection() {
             <motion.h1
               id="hero-heading"
               className="font-heading font-bold leading-[0.95] text-text"
-              style={{ fontSize: "clamp(3.2rem, 7.5vw, 6rem)" }}
+              style={{ fontSize: "clamp(2rem, 5vw, 6rem)" }}
               initial={reduced ? false : { opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, delay: 0.05 }}
@@ -144,7 +144,7 @@ export default function HeroSection() {
 
             {/* Body */}
             <motion.p
-              className="mt-6 w-full max-w-sm text-[1.05rem] leading-relaxed text-muted"
+              className="mt-6 w-full max-w-sm text-base leading-relaxed text-muted"
               initial={reduced ? false : { opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.15 }}

@@ -40,7 +40,7 @@ export default function Navigation() {
     <>
       <header
         role="banner"
-        className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 mb-10 ${
+        className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ${
           scrolled
             ? "border-b border-white/[0.09] bg-bg/90 backdrop-blur-md"
             : "bg-transparent"
@@ -118,7 +118,7 @@ export default function Navigation() {
           />
 
           {/* Drawer panel */}
-          <div className="absolute inset-x-0 top-0 flex flex-col bg-panel pt-20 pb-8 px-4 shadow-2xl sm:px-6">
+          <div className="absolute inset-x-0 top-0 flex flex-col bg-panel pt-16 pb-8 px-4 shadow-2xl sm:pt-20 sm:px-6">
             <ul className="space-y-1" role="list">
               {navLinks.map((l) => (
                 <li key={l.href}>

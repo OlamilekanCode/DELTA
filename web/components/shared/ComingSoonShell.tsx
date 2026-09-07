@@ -16,7 +16,7 @@ export default function ComingSoonShell({
   backLabel = "Back to home",
 }: ComingSoonShellProps) {
   return (
-    <section className="flex min-h-[70vh] flex-col items-center justify-center px-6 py-24 text-center">
+    <section className="flex min-h-[calc(100vh-5rem)] flex-col items-center justify-center px-6 py-16 text-center sm:min-h-[70vh] sm:py-24">
       <div className="mb-6 flex size-20 items-center justify-center rounded-2xl border border-white/[0.09] bg-panel2 text-violet">
         {icon}
       </div>

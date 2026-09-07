@@ -39,7 +39,7 @@ export default function HowItWorksSection() {
 
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         {/* Header row */}
-        <div className="mb-16 grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-20">
+        <div className="mb-8 grid grid-cols-1 gap-6 sm:mb-16 lg:grid-cols-2 lg:gap-20">
           <motion.div
             initial={reduced ? false : { opacity: 0, y: 24 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -86,7 +86,7 @@ export default function HowItWorksSection() {
           {steps.map((step, i) => (
             <motion.div
               key={step.n}
-              className="group relative cursor-default border-b border-white/[0.09] p-5 transition-colors sm:border-b-0 sm:border-r last:border-0 sm:p-6 lg:p-8"
+              className="group relative cursor-default border-b border-white/[0.09] p-4 transition-colors sm:border-b-0 sm:border-r last:border-0 sm:p-6 lg:p-8"
               style={{ background: "#080B12" }}
               initial={reduced ? false : { opacity: 0 }}
               whileInView={{ opacity: 1 }}

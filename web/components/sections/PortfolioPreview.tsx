@@ -68,7 +68,7 @@ export default function PortfolioPreview() {
 
             {/* Weighted score callout — demo preview */}
             <div
-              className="mt-8 inline-flex items-center gap-4 rounded-2xl border px-6 py-4"
+              className="mt-8 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 sm:gap-4 sm:px-6 sm:py-4"
               style={{
                 background: "rgba(109,74,255,0.08)",
                 borderColor: "rgba(109,74,255,0.25)",
@@ -117,7 +117,7 @@ export default function PortfolioPreview() {
             <p className="mb-6 font-mono text-xs font-medium uppercase tracking-widest text-muted">
               Portfolio breakdown
             </p>
-            <div className="space-y-5">
+            <div className="space-y-3 sm:space-y-5">
               {categories.map((cat, i) => (
                 <motion.div
                   key={cat.label}
@@ -157,7 +157,7 @@ export default function PortfolioPreview() {
               ))}
             </div>
 
-            <p className="mt-6 font-mono text-xs text-muted/50">
+            <p className="mt-6 font-mono text-xs text-muted">
               Demo data · read-only wallet connection · not financial advice
             </p>
           </motion.div>
