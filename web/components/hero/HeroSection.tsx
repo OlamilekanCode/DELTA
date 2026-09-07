@@ -63,7 +63,7 @@ export default function HeroSection() {
     <section
       ref={sectionRef}
       className="relative flex flex-col overflow-hidden"
-      style={{ minHeight: "100svh" }}
+      style={{ minHeight: "calc(100svh - 5rem)" }}
       aria-labelledby="hero-heading"
     >
       {/* Dot grid texture */}
