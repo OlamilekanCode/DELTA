@@ -1,5 +1,5 @@
 import Link from "next/link";
-import DeltaLogo from "@/components/shared/DeltaLogo";
+import BrandLogo from "@/components/shared/BrandLogo";
 
 const navLinks = [
   { href: "/explore",     label: "Explore" },
@@ -19,7 +19,7 @@ export default function Footer() {
         <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <DeltaLogo size={22} />
+              <BrandLogo size={22} />
               <span className="font-heading text-xl font-bold text-violet">Synthetic Exposure</span>
             </div>
             <p className="mt-2 max-w-xs text-sm text-muted">

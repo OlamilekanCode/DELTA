@@ -1,4 +1,4 @@
-export default function DeltaLogo({ size = 22 }: { size?: number }) {
+export default function BrandLogo({ size = 22 }: { size?: number }) {
   return (
     <svg
       width={size}

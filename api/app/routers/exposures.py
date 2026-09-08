@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -32,7 +32,7 @@ async def get_exposures(
     stored_result = await db.execute(
         select(StoredExposureScore)
         .where(StoredExposureScore.stock_id == stock.id)
-        .order_by(StoredExposureScore.score.desc())
+        .order_by(func.abs(StoredExposureScore.score).desc())
     )
     stored = stored_result.scalars().all()
 

@@ -1,4 +1,4 @@
-name            = "delta-cron"
+name            = "synthetic-exposure-cron"
 main            = "src/worker.js"
 compatibility_date = "2024-09-23"
 

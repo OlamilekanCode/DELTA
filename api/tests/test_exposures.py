@@ -22,10 +22,10 @@ async def test_exposures_schema(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_exposures_scores_non_negative(client: AsyncClient) -> None:
+async def test_exposures_scores_are_signed(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/exposures/NVDA")
     for s in resp.json()["scores"]:
-        assert s["score"] >= 0.0
+        assert -1.0 <= s["score"] <= 1.0
 
 
 @pytest.mark.asyncio

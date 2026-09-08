@@ -100,6 +100,8 @@ export interface ApiGraphEdge {
   source: string;
   target: string;
   weight: number;
+  score: number;
+  direction: string;
 }
 
 export interface ApiGraphResult {

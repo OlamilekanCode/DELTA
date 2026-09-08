@@ -130,52 +130,52 @@ _SYMBOL_DATA: dict[str, list[float]] = {
 }
 
 FIXTURE_ASSETS: list[dict] = [
-    # Stocks
-    {"symbol": "NVDA", "name": "NVIDIA Corporation",    "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
-    {"symbol": "TSLA", "name": "Tesla Inc.",             "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
-    {"symbol": "COIN", "name": "Coinbase Global Inc.",   "asset_type": "stock",  "category": "Finance",      "coingecko_id": None},
-    {"symbol": "MSTR", "name": "MicroStrategy Inc.",     "asset_type": "stock",  "category": "Finance",      "coingecko_id": None},
-    {"symbol": "AMD",  "name": "Advanced Micro Devices", "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
-    {"symbol": "MSFT", "name": "Microsoft Corporation",  "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
-    {"symbol": "META", "name": "Meta Platforms Inc.",    "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
-    {"symbol": "PLTR", "name": "Palantir Technologies",  "asset_type": "stock",  "category": "Technology",   "coingecko_id": None},
-    # Crypto — Layer 1
-    {"symbol": "BTC",  "name": "Bitcoin",                "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "bitcoin"},
-    {"symbol": "ETH",  "name": "Ethereum",               "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "ethereum"},
-    {"symbol": "SOL",  "name": "Solana",                 "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "solana"},
-    {"symbol": "BNB",  "name": "BNB",                    "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "binancecoin"},
-    {"symbol": "XRP",  "name": "XRP",                    "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "ripple"},
-    {"symbol": "ADA",  "name": "Cardano",                "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "cardano"},
-    {"symbol": "AVAX", "name": "Avalanche",              "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "avalanche-2"},
-    {"symbol": "DOT",  "name": "Polkadot",               "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "polkadot"},
-    {"symbol": "NEAR", "name": "NEAR Protocol",          "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "near"},
-    {"symbol": "ICP",  "name": "Internet Computer",      "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "internet-computer"},
-    {"symbol": "APT",  "name": "Aptos",                  "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "aptos"},
-    {"symbol": "SUI",  "name": "Sui",                    "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "sui"},
-    {"symbol": "HBAR", "name": "Hedera",                 "asset_type": "crypto", "category": "Layer 1",      "coingecko_id": "hedera-hashgraph"},
-    # Crypto — Layer 2
-    {"symbol": "ARB",  "name": "Arbitrum",               "asset_type": "crypto", "category": "Layer 2",      "coingecko_id": "arbitrum"},
-    {"symbol": "OP",   "name": "Optimism",               "asset_type": "crypto", "category": "Layer 2",      "coingecko_id": "optimism"},
-    {"symbol": "POL",  "name": "Polygon",                "asset_type": "crypto", "category": "Layer 2",      "coingecko_id": "polygon-ecosystem-token"},
-    # Crypto — DeFi
-    {"symbol": "UNI",  "name": "Uniswap",                "asset_type": "crypto", "category": "DeFi",         "coingecko_id": "uniswap"},
-    {"symbol": "AAVE", "name": "Aave",                   "asset_type": "crypto", "category": "DeFi",         "coingecko_id": "aave"},
-    {"symbol": "INJ",  "name": "Injective",              "asset_type": "crypto", "category": "DeFi",         "coingecko_id": "injective-protocol"},
-    # Crypto — Oracle/Data
-    {"symbol": "LINK", "name": "Chainlink",              "asset_type": "crypto", "category": "Oracle/Data",  "coingecko_id": "chainlink"},
-    {"symbol": "GRT",  "name": "The Graph",              "asset_type": "crypto", "category": "Oracle/Data",  "coingecko_id": "the-graph"},
-    # Crypto — AI/Compute
-    {"symbol": "TAO",    "name": "Bittensor",            "asset_type": "crypto", "category": "AI/Compute",   "coingecko_id": "bittensor"},
-    {"symbol": "RENDER", "name": "Render",               "asset_type": "crypto", "category": "AI/Compute",   "coingecko_id": "render-token"},
-    {"symbol": "FET",    "name": "Fetch.ai",             "asset_type": "crypto", "category": "AI/Compute",   "coingecko_id": "fetch-ai"},
-    {"symbol": "AKT",    "name": "Akash Network",        "asset_type": "crypto", "category": "AI/Compute",   "coingecko_id": "akash-network"},
-    {"symbol": "AIOZ",   "name": "AIOZ Network",         "asset_type": "crypto", "category": "AI/Compute",   "coingecko_id": "aioz-network"},
-    # Crypto — Storage
-    {"symbol": "FIL",  "name": "Filecoin",               "asset_type": "crypto", "category": "Storage",      "coingecko_id": "filecoin"},
-    {"symbol": "AR",   "name": "Arweave",                "asset_type": "crypto", "category": "Storage",      "coingecko_id": "arweave"},
-    # Crypto — Memecoin
-    {"symbol": "DOGE", "name": "Dogecoin",               "asset_type": "crypto", "category": "Memecoin",     "coingecko_id": "dogecoin"},
-    {"symbol": "PEPE", "name": "Pepe",                   "asset_type": "crypto", "category": "Memecoin",     "coingecko_id": "pepe"},
+    # Stocks — free tier
+    {"symbol": "NVDA", "name": "NVIDIA Corporation",    "asset_type": "stock",  "category": "Technology",   "access": "free",   "coingecko_id": None},
+    {"symbol": "TSLA", "name": "Tesla Inc.",             "asset_type": "stock",  "category": "Technology",   "access": "free",   "coingecko_id": None},
+    {"symbol": "COIN", "name": "Coinbase Global Inc.",   "asset_type": "stock",  "category": "Finance",      "access": "free",   "coingecko_id": None},
+    {"symbol": "MSTR", "name": "MicroStrategy Inc.",     "asset_type": "stock",  "category": "Finance",      "access": "free",   "coingecko_id": None},
+    {"symbol": "AMD",  "name": "Advanced Micro Devices", "asset_type": "stock",  "category": "Technology",   "access": "free",   "coingecko_id": None},
+    {"symbol": "MSFT", "name": "Microsoft Corporation",  "asset_type": "stock",  "category": "Technology",   "access": "free",   "coingecko_id": None},
+    {"symbol": "META", "name": "Meta Platforms Inc.",    "asset_type": "stock",  "category": "Technology",   "access": "free",   "coingecko_id": None},
+    {"symbol": "PLTR", "name": "Palantir Technologies",  "asset_type": "stock",  "category": "Technology",   "access": "free",   "coingecko_id": None},
+    # Crypto — Layer 1 — free tier
+    {"symbol": "BTC",  "name": "Bitcoin",                "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "bitcoin"},
+    {"symbol": "ETH",  "name": "Ethereum",               "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "ethereum"},
+    {"symbol": "SOL",  "name": "Solana",                 "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "solana"},
+    {"symbol": "BNB",  "name": "BNB",                    "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "binancecoin"},
+    {"symbol": "XRP",  "name": "XRP",                    "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "ripple"},
+    {"symbol": "ADA",  "name": "Cardano",                "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "cardano"},
+    {"symbol": "AVAX", "name": "Avalanche",              "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "avalanche-2"},
+    {"symbol": "DOT",  "name": "Polkadot",               "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "polkadot"},
+    {"symbol": "NEAR", "name": "NEAR Protocol",          "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "near"},
+    {"symbol": "ICP",  "name": "Internet Computer",      "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "internet-computer"},
+    {"symbol": "APT",  "name": "Aptos",                  "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "aptos"},
+    {"symbol": "SUI",  "name": "Sui",                    "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "sui"},
+    {"symbol": "HBAR", "name": "Hedera",                 "asset_type": "crypto", "category": "Layer 1",      "access": "free",   "coingecko_id": "hedera-hashgraph"},
+    # Crypto — Layer 2 — free tier
+    {"symbol": "ARB",  "name": "Arbitrum",               "asset_type": "crypto", "category": "Layer 2",      "access": "free",   "coingecko_id": "arbitrum"},
+    {"symbol": "OP",   "name": "Optimism",               "asset_type": "crypto", "category": "Layer 2",      "access": "free",   "coingecko_id": "optimism"},
+    {"symbol": "POL",  "name": "Polygon",                "asset_type": "crypto", "category": "Layer 2",      "access": "free",   "coingecko_id": "polygon-ecosystem-token"},
+    # Crypto — DeFi — free tier
+    {"symbol": "UNI",  "name": "Uniswap",                "asset_type": "crypto", "category": "DeFi",         "access": "free",   "coingecko_id": "uniswap"},
+    {"symbol": "AAVE", "name": "Aave",                   "asset_type": "crypto", "category": "DeFi",         "access": "free",   "coingecko_id": "aave"},
+    {"symbol": "INJ",  "name": "Injective",              "asset_type": "crypto", "category": "DeFi",         "access": "free",   "coingecko_id": "injective-protocol"},
+    # Crypto — Oracle/Data — free tier
+    {"symbol": "LINK", "name": "Chainlink",              "asset_type": "crypto", "category": "Oracle/Data",  "access": "free",   "coingecko_id": "chainlink"},
+    {"symbol": "GRT",  "name": "The Graph",              "asset_type": "crypto", "category": "Oracle/Data",  "access": "free",   "coingecko_id": "the-graph"},
+    # Crypto — AI/Compute — free tier
+    {"symbol": "TAO",    "name": "Bittensor",            "asset_type": "crypto", "category": "AI/Compute",   "access": "free",   "coingecko_id": "bittensor"},
+    {"symbol": "RENDER", "name": "Render",               "asset_type": "crypto", "category": "AI/Compute",   "access": "free",   "coingecko_id": "render-token"},
+    {"symbol": "FET",    "name": "Fetch.ai",             "asset_type": "crypto", "category": "AI/Compute",   "access": "free",   "coingecko_id": "fetch-ai"},
+    {"symbol": "AKT",    "name": "Akash Network",        "asset_type": "crypto", "category": "AI/Compute",   "access": "free",   "coingecko_id": "akash-network"},
+    {"symbol": "AIOZ",   "name": "AIOZ Network",         "asset_type": "crypto", "category": "AI/Compute",   "access": "free",   "coingecko_id": "aioz-network"},
+    # Crypto — Storage — free tier
+    {"symbol": "FIL",  "name": "Filecoin",               "asset_type": "crypto", "category": "Storage",      "access": "free",   "coingecko_id": "filecoin"},
+    {"symbol": "AR",   "name": "Arweave",                "asset_type": "crypto", "category": "Storage",      "access": "free",   "coingecko_id": "arweave"},
+    # Crypto — Memecoin — free tier
+    {"symbol": "DOGE", "name": "Dogecoin",               "asset_type": "crypto", "category": "Memecoin",     "access": "free",   "coingecko_id": "dogecoin"},
+    {"symbol": "PEPE", "name": "Pepe",                   "asset_type": "crypto", "category": "Memecoin",     "access": "free",   "coingecko_id": "pepe"},
 ]
 
 

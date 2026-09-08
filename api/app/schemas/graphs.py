@@ -17,7 +17,9 @@ class GraphNode(BaseModel):
 class GraphEdge(BaseModel):
     source: str
     target: str
-    weight: float
+    weight: float        # abs(score) — use for edge thickness
+    score: float         # signed Pearson r
+    direction: str       # "positive" | "inverse"
 
 
 class GraphResult(BaseModel):

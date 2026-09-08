@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useDeltaGate } from "@/hooks/useDeltaGate";
+import { useAccessGate } from "@/hooks/useAccessGate";
 import ConnectWalletButton from "./ConnectWalletButton";
 
 const DEX_URL = process.env.NEXT_PUBLIC_DEX_BUY_URL ?? "";
 
 export default function PortfolioGate() {
-  const { hasAccess, isConnected } = useDeltaGate();
+  const { hasAccess, isConnected } = useAccessGate();
 
   if (!isConnected) {
     return (

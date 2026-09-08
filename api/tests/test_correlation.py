@@ -164,10 +164,19 @@ async def test_correlation_endpoint_schema(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_correlation_scores_are_non_negative(client: AsyncClient) -> None:
+async def test_correlation_scores_are_signed(client: AsyncClient) -> None:
     r = await client.get("/api/v1/correlation/NVDA")
-    for score in r.json()["scores"]:
-        assert score["score"] >= 0.0
+    scores = r.json()["scores"]
+    for s in scores:
+        assert -1.0 <= s["score"] <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_correlation_scores_sorted_by_magnitude(client: AsyncClient) -> None:
+    r = await client.get("/api/v1/correlation/NVDA")
+    scores = [s["score"] for s in r.json()["scores"]]
+    magnitudes = [abs(s) for s in scores]
+    assert magnitudes == sorted(magnitudes, reverse=True)
 
 
 @pytest.mark.asyncio

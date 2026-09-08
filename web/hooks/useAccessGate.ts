@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useAccount, useConfig } from "wagmi";
-import { hasDeltaAccess } from "@/lib/delta-gate";
+import { hasSynthExAccess } from "@/lib/access-gate";
 
-export function useDeltaGate() {
+export function useAccessGate() {
   const { address, isConnected } = useAccount();
   const config = useConfig();
   const [_hasAccess, setHasAccess] = useState(false);
@@ -13,7 +13,7 @@ export function useDeltaGate() {
     if (!isConnected || !address) return;
 
     let cancelled = false;
-    hasDeltaAccess(config, address).then((result) => {
+    hasSynthExAccess(config, address).then((result) => {
       if (!cancelled) setHasAccess(result);
     });
     return () => { cancelled = true; };

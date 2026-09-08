@@ -158,6 +158,7 @@ async def seed_asset_catalogue(db: AsyncSession) -> None:
                 name=asset_data["name"],
                 asset_type=asset_data["asset_type"],
                 category=asset_data["category"],
+                access=asset_data.get("access", "free"),
                 coingecko_id=asset_data.get("coingecko_id"),
                 updated_at=datetime.now(UTC),
             )
@@ -195,6 +196,7 @@ async def seed_fixture_data(db: AsyncSession) -> None:
                 name=asset_data["name"],
                 asset_type=asset_data["asset_type"],
                 category=asset_data["category"],
+                access=asset_data.get("access", "free"),
                 coingecko_id=asset_data.get("coingecko_id"),
                 updated_at=now,
             )

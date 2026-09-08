@@ -91,19 +91,25 @@ function buildLayout(apiNodes: ApiGraphNode[]): Node[] {
 function buildEdges(apiEdges: ApiGraphResult["edges"], minScore: number): Edge[] {
   return apiEdges
     .filter((e) => e.weight >= minScore)
-    .map((e) => ({
-      id: `${e.source}-${e.target}`,
-      source: e.source,
-      target: e.target,
-      animated: false,
-      style: {
-        stroke: `rgba(155,123,255,${Math.min(0.8, e.weight)})`,
-        strokeWidth: Math.max(1, e.weight * 4),
-      },
-      label: e.weight.toFixed(2),
-      labelStyle: { fill: "#6B7280", fontSize: 10, fontFamily: "monospace" },
-      labelBgStyle: { fill: "transparent" },
-    }));
+    .map((e) => {
+      const positive = e.direction === "positive";
+      const strokeColor = positive
+        ? `rgba(155,123,255,${Math.min(0.85, 0.3 + e.weight * 0.6)})`
+        : `rgba(251,146,60,${Math.min(0.85, 0.3 + e.weight * 0.6)})`;
+      return {
+        id: `${e.source}-${e.target}`,
+        source: e.source,
+        target: e.target,
+        animated: false,
+        style: {
+          stroke: strokeColor,
+          strokeWidth: Math.max(1, e.weight * 4),
+        },
+        label: e.score.toFixed(2),
+        labelStyle: { fill: "#6B7280", fontSize: 10, fontFamily: "monospace" },
+        labelBgStyle: { fill: "transparent" },
+      };
+    });
 }
 
 function GraphInner({ graphData }: { graphData: ApiGraphResult }) {

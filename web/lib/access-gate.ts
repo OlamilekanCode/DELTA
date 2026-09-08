@@ -1,8 +1,8 @@
 import { readContract } from "@wagmi/core";
 import { erc20Abi } from "viem";
 
-const TOKEN_ADDRESS = process.env.NEXT_PUBLIC_DELTA_TOKEN_ADDRESS as `0x${string}` | undefined;
-const MIN_BALANCE_RAW = process.env.NEXT_PUBLIC_DELTA_MIN_BALANCE ?? "";
+const TOKEN_ADDRESS = process.env.NEXT_PUBLIC_SYNTHEX_TOKEN_ADDRESS as `0x${string}` | undefined;
+const MIN_BALANCE_RAW = process.env.NEXT_PUBLIC_SYNTHEX_HOLDER_MIN_BALANCE ?? "";
 
 const ZERO = BigInt(0);
 
@@ -15,7 +15,7 @@ function getMinBalance(): bigint {
 }
 
 // Returns false when gating is not configured (env vars empty) — no-op
-export async function hasDeltaAccess(
+export async function hasSynthExAccess(
   wagmiConfig: Parameters<typeof readContract>[0],
   address: `0x${string}`
 ): Promise<boolean> {

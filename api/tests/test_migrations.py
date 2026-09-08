@@ -49,7 +49,7 @@ def test_migrate_round_trip() -> None:
 
 
 def test_migrate_from_base_to_head() -> None:
-    """Verify all four migrations apply cleanly from an empty database."""
+    """Verify all migrations apply cleanly from an empty database."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = Path(f.name)
 
@@ -64,8 +64,8 @@ def test_migrate_from_base_to_head() -> None:
         # Verify current revision matches head
         result = _alembic(["current"], db_url)
         assert result.returncode == 0
-        assert "0004" in result.stdout, (
-            f"Expected revision 0004 to be current, got:\n{result.stdout}"
+        assert "0007" in result.stdout, (
+            f"Expected revision 0007 to be current, got:\n{result.stdout}"
         )
     finally:
         db_path.unlink(missing_ok=True)

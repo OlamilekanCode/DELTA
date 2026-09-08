@@ -58,7 +58,7 @@ class ExposureScore:
     symbol: str
     name: str
     category: str
-    score: float          # max(0, raw_correlation)
+    score: float          # signed Pearson r in [-1.00, +1.00]
     raw_correlation: float
     observations: int
 
@@ -87,10 +87,12 @@ def compute_exposure_scores(
             symbol=symbol,
             name=name,
             category=category,
-            score=round(max(0.0, r), 4),
+            score=round(r, 4),
             raw_correlation=round(r, 4),
             observations=n,
         ))
 
-    results.sort(key=lambda e: e.score, reverse=True)
+    # Sort by relationship magnitude so the strongest relationships appear first,
+    # regardless of direction.
+    results.sort(key=lambda e: abs(e.score), reverse=True)
     return results

@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 
 def _try_lock(command_name: str) -> bool:
     """Acquire a PID-file lock for CLI use. Returns False if another instance is running."""
-    lock_path = Path(tempfile.gettempdir()) / f"delta_{command_name}.lock"
+    lock_path = Path(tempfile.gettempdir()) / f"synthex_{command_name}.lock"
     if lock_path.exists():
         try:
             existing_pid = int(lock_path.read_text().strip())

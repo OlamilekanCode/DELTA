@@ -14,13 +14,14 @@ class Settings(BaseSettings):
     coingecko_api_type: str = "demo"  # "demo" | "pro"
     use_demo_data: bool = True
 
-    delta_chain_id: int = 8453
-    delta_token_address: str = ""
-    delta_min_balance: str = ""
+    synthex_chain_id: int = 0
+    synthex_token_address: str = ""
+    synthex_token_decimals: int = 18
+    synthex_holder_min_balance_raw: str = ""
 
-    # Optional: backend RPC URL for on-chain reads (not currently used;
-    # balance gating is handled client-side by Reown/Wagmi)
-    base_rpc_url: str = ""
+    # Server-only RPC for Robinhood Chain on-chain reads.
+    # Never expose this URL to the frontend.
+    robinhood_rpc_url: str = ""
 
     cron_secret: str = ""
 

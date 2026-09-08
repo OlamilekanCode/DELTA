@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -28,10 +28,14 @@ async def get_graph(
     if not stock:
         raise HTTPException(status_code=404, detail=f"Stock {symbol!r} not found")
 
+    # Filter on abs(score) so inverse relationships are not silently excluded.
     stored_result = await db.execute(
         select(StoredExposureScore)
-        .where(StoredExposureScore.stock_id == stock.id, StoredExposureScore.score >= min_score)
-        .order_by(StoredExposureScore.score.desc())
+        .where(
+            StoredExposureScore.stock_id == stock.id,
+            func.abs(StoredExposureScore.score) >= min_score,
+        )
+        .order_by(func.abs(StoredExposureScore.score).desc())
         .limit(_GRAPH_MAX_NODES)
     )
     stored = stored_result.scalars().all()
@@ -66,7 +70,13 @@ async def get_graph(
             score=s.score,
             is_center=False,
         ))
-        edges.append(GraphEdge(source=stock.symbol, target=ca.symbol, weight=s.score))
+        edges.append(GraphEdge(
+            source=stock.symbol,
+            target=ca.symbol,
+            weight=round(abs(s.score), 4),
+            score=s.score,
+            direction="positive" if s.score >= 0 else "inverse",
+        ))
 
     return GraphResult(
         stock=StockInfo(symbol=stock.symbol, name=stock.name),

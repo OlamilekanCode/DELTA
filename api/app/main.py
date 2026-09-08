@@ -44,7 +44,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
-        title="DELTA — Synthetic Exposure API",
+        title="Synthetic Exposure API",
         version="3.0.0",
         description="Stock ↔ Crypto Exposure Layer",
         lifespan=lifespan,

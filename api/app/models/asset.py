@@ -18,6 +18,7 @@ class Asset(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     asset_type: Mapped[str] = mapped_column(String(10), nullable=False)  # "stock" | "crypto"
     category: Mapped[str] = mapped_column(String(50), nullable=False)
+    access: Mapped[str] = mapped_column(String(10), nullable=False, server_default="free")  # "free" | "holder"
     coingecko_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

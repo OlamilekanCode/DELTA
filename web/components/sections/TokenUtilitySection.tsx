@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from "framer-motion";
 type FeatureStatus = "available" | "soon" | "future";
 
 const features: { label: string; status: FeatureStatus; note: string; desc: string }[] = [
-  { label: "Exposure Scores",           status: "available", note: "Live now",              desc: "0–1 Pearson correlation score across 8 stocks × 30 crypto" },
+  { label: "Exposure Scores",           status: "available", note: "Live now",              desc: "Signed Pearson correlation score across 8 stocks × 30 crypto" },
   { label: "Exposure Graph",            status: "available", note: "Live now",              desc: "Interactive graph of stock ↔ crypto relationships" },
   { label: "Price History",             status: "available", note: "Live now",              desc: "90-day daily OHLCV for all assets in the universe" },
   { label: "Portfolio Exposure",        status: "soon",      note: "Coming soon",           desc: "Wallet-level exposure breakdown and weighted score" },
@@ -22,11 +22,11 @@ const statusConfig = {
   future:    { color: "#6B7280", bg: "rgba(107,114,128,0.08)", border: "rgba(107,114,128,0.2)",  dot: "#6B7280" },
 } as const;
 
-export default function DeltaUtilitySection() {
+export default function TokenUtilitySection() {
   const reduced = useReducedMotion();
 
   return (
-    <section className="relative overflow-hidden" aria-labelledby="delta-utility-heading">
+    <section className="relative overflow-hidden" aria-labelledby="token-utility-heading">
       <div
         className="h-px w-full"
         style={{ background: "linear-gradient(90deg, transparent, rgba(109,74,255,0.35), rgba(61,123,255,0.25), transparent)" }}
@@ -46,7 +46,7 @@ export default function DeltaUtilitySection() {
               $SynthEx · Main Access Token
             </p>
             <h2
-              id="delta-utility-heading"
+              id="token-utility-heading"
               className="font-heading font-bold leading-[0.92] text-text"
               style={{ fontSize: "clamp(1.8rem, 5vw, 4rem)" }}
             >

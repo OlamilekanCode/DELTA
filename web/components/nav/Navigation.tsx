@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import ConnectWalletButton from "@/components/wallet/ConnectWalletButton";
-import DeltaLogo from "@/components/shared/DeltaLogo";
+import BrandLogo from "@/components/shared/BrandLogo";
 
 const navLinks: { href: string; label: string }[] = [
   { href: "/explore",     label: "Explore" },
@@ -57,7 +57,7 @@ export default function Navigation() {
             className="flex items-center gap-2 font-heading text-2xl font-bold text-violet transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet"
             aria-label="Synthetic Exposure home"
           >
-            <DeltaLogo size={24} />
+            <BrandLogo size={24} />
             Synthetic Exposure
           </Link>
 
