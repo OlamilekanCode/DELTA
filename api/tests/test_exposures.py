@@ -109,10 +109,11 @@ async def test_assets_search_by_name(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_assets_search_empty_returns_all(client: AsyncClient) -> None:
+async def test_assets_search_empty_returns_free_tier_only_for_guests(client: AsyncClient) -> None:
+    """Guests must never see the full 120-asset catalogue — only the free tier."""
     resp = await client.get("/api/v1/assets/search")
     assert resp.status_code == 200
-    assert len(resp.json()["assets"]) == 120  # 20 stocks + 100 crypto (free + holder tiers)
+    assert len(resp.json()["assets"]) == 38  # 8 free stocks + 30 free crypto
 
 
 @pytest.mark.asyncio

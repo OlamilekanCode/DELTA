@@ -8,7 +8,7 @@ from app.services.holder import is_verified_holder
 # The Render API and Vercel frontend are cross-origin, so the backend never
 # sets a browser-facing cookie itself. The BFF (Next.js route handlers) owns
 # the HttpOnly cookie on its own origin and forwards the session token here
-# as a Bearer token — see CLAUDE.md's BFF pattern.
+# as a Bearer token via the Next.js BFF route handlers.
 _BEARER_PREFIX = "Bearer "
 
 
@@ -39,14 +39,3 @@ async def require_holder(
     if not await is_verified_holder(db, wallet):
         raise HTTPException(status_code=403, detail="holder_required")
     return wallet
-
-
-async def enforce_asset_access(request: Request, db: AsyncSession, access: str) -> None:
-    """Raise 403 holder_required unless `access` is "free" or the caller is a
-    verified holder. Used inline by routers gating a specific asset/pair rather
-    than the whole route, since access is per-row, not per-endpoint."""
-    if access != "holder":
-        return
-    wallet = await get_current_wallet(request, db)
-    if wallet is None or not await is_verified_holder(db, wallet):
-        raise HTTPException(status_code=403, detail="holder_required")

@@ -5,12 +5,12 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import enforce_asset_access
 from app.models.asset import Asset
 from app.models.intraday_price import IntradayPrice
 from app.models.price import DailyPrice
 from app.models.quote import AssetQuote
 from app.schemas.asset import AssetHistoryOut, AssetHistoryPoint, AssetListOut, AssetOut
+from app.services.access import free_only_clause, get_access_context, require_asset_access
 
 router = APIRouter()
 
@@ -62,6 +62,7 @@ def _asset_out(
             name=asset.name,
             category=asset.category,
             asset_type=asset.asset_type,
+            access=asset.access,
             coingecko_id=asset.coingecko_id,
             last_price=quote_row.price_usd,
             last_price_date=quote_row.ts.date().isoformat() if quote_row.ts else None,
@@ -78,6 +79,7 @@ def _asset_out(
         name=asset.name,
         category=asset.category,
         asset_type=asset.asset_type,
+        access=asset.access,
         coingecko_id=asset.coingecko_id,
         last_price=price_row.close if price_row else None,
         last_price_date=price_row.date if price_row else None,
@@ -87,12 +89,17 @@ def _asset_out(
 
 @router.get("/assets", response_model=AssetListOut)
 async def list_assets(
+    request: Request,
     type: Literal["crypto", "stock"] | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> AssetListOut:
+    ctx = await get_access_context(request, db)
     stmt = select(Asset).order_by(Asset.symbol)
     if type:
         stmt = stmt.where(Asset.asset_type == type)
+    clause = free_only_clause(ctx)
+    if clause is not None:
+        stmt = stmt.where(clause)
     result = await db.execute(stmt)
     assets = result.scalars().all()
     price_map = await _latest_prices(db)
@@ -102,13 +109,18 @@ async def list_assets(
 
 @router.get("/assets/search", response_model=AssetListOut)
 async def search_assets(
+    request: Request,
     q: str = Query(default="", max_length=100),
     type: Literal["crypto", "stock"] | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> AssetListOut:
+    ctx = await get_access_context(request, db)
     stmt = select(Asset).order_by(Asset.symbol)
     if type:
         stmt = stmt.where(Asset.asset_type == type)
+    clause = free_only_clause(ctx)
+    if clause is not None:
+        stmt = stmt.where(clause)
     if q.strip():
         pattern = f"%{q.strip().lower()}%"
         stmt = stmt.where(
@@ -133,7 +145,7 @@ async def get_asset(symbol: str, request: Request, db: AsyncSession = Depends(ge
     asset = result.scalar_one_or_none()
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset {symbol!r} not found")
-    await enforce_asset_access(request, db, asset.access)
+    await require_asset_access(request, db, asset)
     price_map = await _latest_prices(db)
     quote_map = await _latest_quotes(db)
     return _asset_out(asset, price_map.get(asset.id), quote_map.get(asset.id))
@@ -153,7 +165,7 @@ async def get_asset_history(
     asset = result.scalar_one_or_none()
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset {symbol!r} not found")
-    await enforce_asset_access(request, db, asset.access)
+    await require_asset_access(request, db, asset)
 
     if range in _INTRADAY_RANGE_BUCKETS:
         return await _asset_history_intraday(db, asset, range)

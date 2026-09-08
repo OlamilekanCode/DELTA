@@ -6,6 +6,7 @@ class AssetOut(BaseModel):
     name: str
     category: str
     asset_type: str
+    access: str = "free"  # "free" | "holder"
     coingecko_id: str | None = None
     last_price: float | None = None
     last_price_date: str | None = None
