@@ -1,6 +1,7 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
+import { formatScore } from "@/lib/format";
 
 // Inner ring r=38 from center (100,100)
 const INNER = [
@@ -294,7 +295,7 @@ export default function HeroGraph() {
                   <div className="mb-1 flex items-center justify-between">
                     <span className="font-mono text-xs font-semibold text-text">{s.symbol}</span>
                     <span className="font-mono text-xs" style={{ color: s.color }}>
-                      {s.score.toFixed(2)}
+                      {formatScore(s.score)}
                     </span>
                   </div>
                   {/* Score bar */}
@@ -306,7 +307,7 @@ export default function HeroGraph() {
                       className="h-full rounded-full"
                       style={{ background: s.color }}
                       initial={{ width: 0 }}
-                      animate={{ width: `${s.score * 100}%` }}
+                      animate={{ width: `${Math.abs(s.score) * 100}%` }}
                       transition={reduced ? { duration: 0 } : { duration: 0.8, delay: 0.9 + i * 0.07, ease: "easeOut" }}
                     />
                   </div>
@@ -334,7 +335,7 @@ export default function HeroGraph() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {ALL_NODES.slice(0, 4).map((n) => (
               <span key={n.id} className="font-mono text-[10px]" style={{ color: n.color }}>
-                {n.symbol} {n.score.toFixed(2)}
+                {n.symbol} {formatScore(n.score)}
               </span>
             ))}
           </div>

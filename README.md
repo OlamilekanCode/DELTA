@@ -1,16 +1,16 @@
-# DELTA — Synthetic Exposure
+# Synthetic Exposure
 
-DELTA maps historical correlations between stocks and crypto assets through an interactive Exposure Graph and a 0–1 Exposure Score. The `$DELTA` utility token gates future advanced features.
+Maps historical correlations between stocks and crypto assets through an interactive Exposure Graph and signed Exposure Scores (−1.00 to +1.00). The `$SynthEx` utility token gates future advanced features.
 
 ---
 
 ## Project structure
 
 ```
-delta/
+synthetic-exposure/
 ├── web/              Next.js 16 App Router frontend
 ├── api/              FastAPI backend (Python 3.12+)
-├── docs/             Architecture, methodology, API reference
+├── cloudflare/       Cron dispatcher Worker
 ├── .env.example      Template for web/.env.local and api/.env
 └── README.md
 ```
@@ -92,11 +92,12 @@ All variables are documented in `.env.example`. Key values:
 | `COINGECKO_API_KEY` | Crypto price data (`USE_DEMO_DATA=false`) |
 | `COINGECKO_API_TYPE` | `demo` (default) or `pro` |
 | `CRON_SECRET` | Authenticate scheduled job endpoints |
-| `NEXT_PUBLIC_API_BASE_URL` | Frontend → backend URL |
+| `NEXT_PUBLIC_API_BASE_URL` | Frontend → backend URL (public, browser-fetched) |
+| `BACKEND_API_URL` | Server-only Vercel var → FastAPI origin (BFF pattern) |
 | `NEXT_PUBLIC_REOWN_PROJECT_ID` | Wallet connection (AppKit) |
-| `NEXT_PUBLIC_DELTA_TOKEN_ADDRESS` | `$DELTA` token contract address |
-| `NEXT_PUBLIC_DELTA_MIN_BALANCE` | Minimum balance for portfolio access (raw units) |
-| `NEXT_PUBLIC_DEX_BUY_URL` | Link to buy `$DELTA` |
+| `NEXT_PUBLIC_SYNTHEX_TOKEN_ADDRESS` | `$SynthEx` token contract address |
+| `NEXT_PUBLIC_SYNTHEX_HOLDER_MIN_BALANCE` | Minimum balance for holder access (raw units) |
+| `NEXT_PUBLIC_SYNTHEX_BUY_URL` | Link to buy `$SynthEx` |
 
 ---
 
@@ -104,7 +105,7 @@ All variables are documented in `.env.example`. Key values:
 
 ### Frontend — Vercel
 
-Set all `NEXT_PUBLIC_*` variables in the Vercel project settings. No build command override needed; the default `npm run build` works.
+Set all `NEXT_PUBLIC_*` variables in the Vercel project settings. Also set `BACKEND_API_URL` (server-only, not `NEXT_PUBLIC_`) to the Render API origin. No build command override needed; the default `npm run build` works.
 
 ### Backend — Render
 
@@ -117,10 +118,6 @@ alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
 Set all backend secrets in Render's environment panel.
-
-### Database — Neon (PostgreSQL)
-
-Set `DATABASE_URL` to the Neon connection string (use the pooled URL for the API, the direct URL for `alembic upgrade head`).
 
 ### Scheduler — Cloudflare Worker + Cron
 
@@ -136,7 +133,7 @@ npx wrangler deploy
 | Schedule (wrangler.toml) | Forwarded to | Purpose |
 |--------------------------|--------------|---------|
 | `*/5 * * * *` | `POST /api/v1/cron/refresh-crypto-quotes` | Current crypto prices |
-| `0 0 * * 2,5` | `POST /api/v1/cron/refresh-history-and-scores` | OHLCV history + score recompute |
+| `0 23 * * 2,5` | `POST /api/v1/cron/refresh-history-and-scores` | OHLCV history + score recompute |
 
 Both endpoints share a single advisory lock — they cannot overlap even if both crons fire at the same time.
 
@@ -146,7 +143,7 @@ Both endpoints share a single advisory lock — they cannot overlap even if both
 
 **8 stocks**: NVDA, TSLA, COIN, MSTR, AMD, MSFT, META, PLTR
 
-**30 crypto assets** across 7 categories: Layer 1, Layer 2, DeFi, Oracle/Data, AI/Compute, Storage, Memecoin. See [docs/methodology.md](docs/methodology.md) for the full list.
+**30 crypto assets** across 7 categories: Layer 1, Layer 2, DeFi, Oracle/Data, AI/Compute, Storage, Memecoin.
 
 ---
 
@@ -160,7 +157,7 @@ Both endpoints share a single advisory lock — they cannot overlap even if both
 | Charts | lightweight-charts v5 |
 | Wallet | Reown AppKit, Wagmi, Viem |
 | Backend | Python FastAPI, Pydantic v2 |
-| Database | PostgreSQL (Neon), SQLAlchemy 2 async, Alembic |
+| Database | PostgreSQL, SQLAlchemy 2 async, Alembic |
 | Providers | CoinGecko (crypto), Marketstack (stocks) |
 | Hosting | Render (API), Vercel (frontend), Cloudflare Cron (scheduler) |
 
@@ -168,4 +165,4 @@ Both endpoints share a single advisory lock — they cannot overlap even if both
 
 ## Disclaimer
 
-DELTA Exposure Scores are for informational purposes only and do not constitute investment advice. See [/methodology](/methodology) for the full methodology. DELTA does not custody assets, operate an exchange, or guarantee equivalent asset performance.
+Synthetic Exposure Scores are for informational purposes only and do not constitute investment advice. See [/methodology](/methodology) for the full methodology. Synthetic Exposure does not custody assets, operate an exchange, or guarantee equivalent asset performance.

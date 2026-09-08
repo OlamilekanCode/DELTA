@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker — DELTA cron dispatcher
+ * Cloudflare Worker — Synthetic Exposure cron dispatcher
  *
  * Receives Cloudflare Cron Trigger events and forwards them to the
  * protected Render API endpoints with the X-Cron-Secret header.

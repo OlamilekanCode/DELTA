@@ -241,7 +241,7 @@ async def _run(cmd: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="DELTA ingestion commands")
+    parser = argparse.ArgumentParser(description="Synthetic Exposure ingestion commands")
     parser.add_argument(
         "command",
         choices=list(_COMMANDS),

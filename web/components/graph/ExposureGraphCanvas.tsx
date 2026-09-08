@@ -15,6 +15,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { ApiGraphResult, ApiGraphNode } from "@/lib/types";
+import { formatScore } from "@/lib/format";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "Layer 1": "#F4C95D", "Layer 2": "#3D7BFF", "DeFi": "#9B7BFF",
@@ -47,7 +48,7 @@ function CryptoNode({ data }: NodeProps) {
     >
       <span className="font-mono text-xs font-bold" style={{ color }}>{data.symbol as string}</span>
       {score != null && (
-        <span className="font-mono text-[9px] opacity-70" style={{ color }}>{score.toFixed(2)}</span>
+        <span className="font-mono text-[9px] opacity-70" style={{ color }}>{formatScore(score)}</span>
       )}
     </div>
   );
@@ -105,7 +106,7 @@ function buildEdges(apiEdges: ApiGraphResult["edges"], minScore: number): Edge[]
           stroke: strokeColor,
           strokeWidth: Math.max(1, e.weight * 4),
         },
-        label: e.score.toFixed(2),
+        label: formatScore(e.score),
         labelStyle: { fill: "#6B7280", fontSize: 10, fontFamily: "monospace" },
         labelBgStyle: { fill: "transparent" },
       };

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +16,7 @@ _GRAPH_MAX_NODES = 12
 @router.get("/graphs/{stock_symbol}", response_model=GraphResult)
 async def get_graph(
     stock_symbol: str,
-    min_score: float = 0.0,
+    min_score: float = Query(default=0.0, ge=0.0, le=1.0),
     db: AsyncSession = Depends(get_db),
 ) -> GraphResult:
     symbol = stock_symbol.upper()

@@ -2,6 +2,8 @@
 
 import { createAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
+// TODO: replace `base` with Robinhood Chain once chain ID, RPC URL and
+// contract addresses are supplied. Base (8453) is a temporary placeholder only.
 import { base } from "@reown/appkit/networks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";

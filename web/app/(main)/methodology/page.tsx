@@ -47,18 +47,22 @@ export default function MethodologyPage() {
 
       <Section title="What is an Exposure Score?">
         <p>
-          An Exposure Score is a number between <strong className="text-text">0.0</strong> and{" "}
-          <strong className="text-text">1.0</strong> that measures how similarly a crypto asset
-          and a stock have moved in price over the past 90 days.
+          An Exposure Score is the signed Pearson correlation coefficient between a crypto asset
+          and a stock over the past 90 days. It ranges from{" "}
+          <strong className="text-text">−1.00</strong> (perfect inverse relationship) through{" "}
+          <strong className="text-text">0.00</strong> (no linear relationship) to{" "}
+          <strong className="text-text">+1.00</strong> (perfect positive relationship).
         </p>
         <p>
-          A score of <strong className="text-text">0.78</strong> means the two assets have had a
-          strong positive price-movement relationship. A score of <strong className="text-text">0.0</strong> means
-          no positive relationship was detected.
+          A score of <strong className="text-text">+0.78</strong> means the two assets have had a
+          strong positive price-movement relationship over the window. A score of{" "}
+          <strong className="text-text">−0.62</strong> means an inverse relationship — when one
+          rose the other tended to fall. A score near <strong className="text-text">0.00</strong>{" "}
+          means no consistent linear relationship was detected.
         </p>
         <p>
-          <strong className="text-text">This is not a forecast.</strong> A high Exposure Score
-          reflects past similarity, not guaranteed future behaviour.
+          <strong className="text-text">This is not a forecast.</strong> An Exposure Score
+          reflects past price-movement similarity, not guaranteed future behaviour.
         </p>
       </Section>
 
@@ -81,31 +85,31 @@ export default function MethodologyPage() {
               return_t = ln(price_t / price_&#123;t-1&#125;)
             </div>
           </li>
-          <li>Align stock and crypto returns by date</li>
+          <li>Align stock and crypto returns by date (inner join)</li>
           <li>
-            Calculate Pearson correlation <Code>r</Code> across aligned observations
-          </li>
-          <li>
-            Apply floor and ceiling:
+            Calculate Pearson correlation <Code>r</Code> across aligned observations — the result
+            is the Exposure Score, stored without any clamp or transform:
             <div className="my-3 rounded-lg border border-white/[0.09] bg-panel p-4 font-mono text-sm text-violet-light">
-              exposure_score = max(0, min(1, r))
+              exposure_score = r &nbsp; &nbsp;(range: −1.00 to +1.00)
             </div>
           </li>
         </ol>
-        <p>
-          Negative or zero correlation is treated as zero positive exposure. The raw Pearson{" "}
-          <Code>r</Code> value (which can be negative) is preserved in the API response for transparency.
-        </p>
       </Section>
 
       <Section title="Score display">
         <p>
-          Scores are always displayed as decimals: <strong className="text-text">0.78</strong>, not
-          &ldquo;78%&rdquo;. A score does not represent ownership, guaranteed exposure, or an equivalent
-          percentage of price movement.
+          Scores are always displayed with an explicit sign: <strong className="text-text">+0.78</strong>,{" "}
+          <strong className="text-text">−0.62</strong>, <strong className="text-text">0.00</strong>.
+          They are never shown as percentages. A score does not represent ownership, guaranteed
+          exposure, or an equivalent percentage of price movement.
+        </p>
+        <p>
+          Edge thickness in the Exposure Graph reflects magnitude (<Code>|r|</Code>). Colour
+          reflects direction: violet for positive relationships, amber for inverse relationships.
         </p>
         <div className="rounded-xl border border-white/[0.09] bg-panel p-5 font-mono text-sm">
-          <p className="text-text">NVDA Exposure Score: <span className="font-bold text-violet">0.78</span></p>
+          <p className="text-text">NVDA ↔ BTC Exposure Score: <span className="font-bold text-violet">+0.78</span></p>
+          <p className="mt-1 text-muted">NVDA ↔ DOGE Exposure Score: <span className="font-bold" style={{ color: "#FB923C" }}>−0.41</span></p>
           <p className="mt-1 text-muted">90-day historical relationship · 63 aligned observations</p>
           <p className="mt-1 text-muted">Model: pearson_v1</p>
         </div>

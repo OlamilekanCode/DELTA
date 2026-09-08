@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import type { ApiExposuresResult } from "@/lib/types";
+import { formatScore } from "@/lib/format";
 
 const CATEGORY_COLORS: Record<string, { text: string; bg: string; border: string }> = {
   "Layer 1":     { text: "#F4C95D", bg: "rgba(244,201,93,0.08)",  border: "rgba(244,201,93,0.25)" },
@@ -15,15 +16,19 @@ const CATEGORY_COLORS: Record<string, { text: string; bg: string; border: string
 };
 const DEFAULT = { text: "#9B7BFF", bg: "rgba(155,123,255,0.08)", border: "rgba(155,123,255,0.25)" };
 
-function ScoreBar({ value, color }: { value: number; color: string }) {
+const SCORE_POS_COLOR = "#9B7BFF";
+const SCORE_INV_COLOR = "#FB923C";
+
+function ScoreBar({ score }: { score: number }) {
   const reduced = useReducedMotion();
+  const barColor = score >= 0 ? SCORE_POS_COLOR : SCORE_INV_COLOR;
   return (
     <div className="h-1 w-full overflow-hidden rounded-full bg-panel2">
       <motion.div
         className="h-full rounded-full"
-        style={{ background: color }}
+        style={{ background: barColor }}
         initial={{ width: 0 }}
-        whileInView={{ width: `${value * 100}%` }}
+        whileInView={{ width: `${Math.abs(score) * 100}%` }}
         viewport={{ once: true }}
         transition={reduced ? { duration: 0 } : { duration: 0.8, ease: "easeOut" }}
       />
@@ -92,11 +97,11 @@ export default function StockExposureList({ exposures, stockSymbol }: Props) {
                       {s.category}
                     </span>
                   </div>
-                  <span className="font-mono text-sm font-bold" style={{ color: c.text }}>
-                    {s.score.toFixed(2)}
+                  <span className="font-mono text-sm font-bold" style={{ color: s.score >= 0 ? SCORE_POS_COLOR : SCORE_INV_COLOR }}>
+                    {formatScore(s.score)}
                   </span>
                 </div>
-                <ScoreBar value={s.score} color={c.text} />
+                <ScoreBar score={s.score} />
                 <p className="mt-1.5 font-mono text-xs text-muted">{s.observations} observations</p>
               </Link>
             </motion.div>

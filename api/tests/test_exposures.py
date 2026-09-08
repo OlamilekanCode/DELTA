@@ -69,6 +69,24 @@ async def test_graphs_edges_match_nodes(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_graphs_edge_direction_field(client: AsyncClient) -> None:
+    resp = await client.get("/api/v1/graphs/NVDA")
+    for edge in resp.json()["edges"]:
+        assert edge["direction"] in ("positive", "inverse")
+        assert "score" in edge
+        assert "weight" in edge
+        assert edge["weight"] == round(abs(edge["score"]), 4)
+        expected_dir = "positive" if edge["score"] >= 0 else "inverse"
+        assert edge["direction"] == expected_dir
+
+
+@pytest.mark.asyncio
+async def test_graphs_min_score_invalid_returns_422(client: AsyncClient) -> None:
+    assert (await client.get("/api/v1/graphs/NVDA?min_score=1.5")).status_code == 422
+    assert (await client.get("/api/v1/graphs/NVDA?min_score=-0.1")).status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_graphs_unknown_stock_404(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/graphs/FAKEX")
     assert resp.status_code == 404

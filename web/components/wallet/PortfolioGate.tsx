@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useAccessGate } from "@/hooks/useAccessGate";
 import ConnectWalletButton from "./ConnectWalletButton";
 
-const DEX_URL = process.env.NEXT_PUBLIC_DEX_BUY_URL ?? "";
+const DEX_URL = process.env.NEXT_PUBLIC_SYNTHEX_BUY_URL ?? "";
 
 export default function PortfolioGate() {
   const { hasAccess, isConnected } = useAccessGate();
