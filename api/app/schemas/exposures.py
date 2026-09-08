@@ -11,3 +11,5 @@ class ExposuresResult(BaseModel):
     computed_at: datetime | None
     stale: bool
     demo: bool
+    model_version: str = "v1"
+    window_days: int = 90

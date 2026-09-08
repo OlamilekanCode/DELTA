@@ -24,5 +24,7 @@ class StoredExposureScore(Base):
     model_version: Mapped[str] = mapped_column(String(20), nullable=False, default="v1")
     is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     data_quality: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    # "ok" | "adj_close_missing" | "low_observations"
+    # "crypto_daily_proxy" (crypto side is a daily UTC close, not selected
+    # against the actual XNYS session close — see docs/methodology.md) |
+    # "adj_close_missing" | "low_observations"
     data_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

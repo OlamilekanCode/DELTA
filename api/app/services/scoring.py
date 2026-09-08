@@ -103,12 +103,17 @@ async def recompute_all_scores(db: AsyncSession) -> int:
             # Pair-level is_demo: True if EITHER the stock OR the crypto has demo prices.
             # Only mark live (False) when both assets use real provider data.
             pair_is_demo = stock_is_demo or (ca.id in demo_asset_ids)
+            # Crypto prices here are daily UTC closes, not selected against the
+            # actual XNYS session close time (see docs/methodology.md) — never
+            # claim precise market-close alignment until hourly/5-min crypto
+            # observations cover the full 90-day window and session-aligned
+            # selection is wired in here.
             if stock_adj_close_fallback:
                 data_quality = "adj_close_missing"
             elif s.observations < MIN_OBSERVATIONS * 1.2:
                 data_quality = "low_observations"
             else:
-                data_quality = "ok"
+                data_quality = "crypto_daily_proxy"
             db.add(StoredExposureScore(
                 stock_id=stock.id,
                 crypto_id=crypto_id,
