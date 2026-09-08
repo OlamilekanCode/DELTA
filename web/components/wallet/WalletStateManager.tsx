@@ -7,7 +7,8 @@ import { useAccount, useSignMessage } from "wagmi";
 import { useSession } from "@/hooks/useSession";
 
 /**
- * The 10 wallet states from CLAUDE.md's "Wallet states (frontend)" section.
+ * The 10 required wallet states, covering disconnected/wrong-chain/unauthenticated
+ * through each verified purchase tier.
  * `loading` is an 11th transitional state while entitlements are being
  * resolved after authentication — never shown for more than a beat.
  */
@@ -31,6 +32,7 @@ interface EntitlementsStatus {
   cumulative_usd: number;
   is_holder: boolean;
   synthex_balance: string | null;
+  synthex_balance_checked_at: string | null;
 }
 
 interface WalletStateContextValue {
@@ -67,6 +69,16 @@ async function fetchEntitlements(): Promise<EntitlementsStatus | null> {
   return res.json();
 }
 
+/**
+ * Triggers a fresh on-chain balance read (rate-limited server-side to a
+ * ~5-minute cache window — see api/app/services/holder.py) and returns the
+ * updated status in one round trip.
+ */
+async function refreshEntitlements(): Promise<EntitlementsStatus | null> {
+  await fetch("/api/entitlements/refresh", { method: "POST" }).catch(() => {});
+  return fetchEntitlements();
+}
+
 async function buildSiweMessage(address: string, chainId: number, nonce: string): Promise<string> {
   const domain = window.location.host;
   const uri = window.location.origin;
@@ -98,10 +110,12 @@ export default function WalletStateManager({ children }: { children: React.React
   const configuredChainId = useMemo(() => parseConfiguredChainId(), []);
   const chainConfigured = configuredChainId !== null;
 
-  // Refetches every 5 minutes while authenticated and the tab is visible.
+  // Forces a fresh on-chain balance read (server-side rate-limited) after
+  // login and every 5 minutes while authenticated and the tab is visible —
+  // never on every route change or ordinary asset-page request.
   const { data: entitlements = null, isLoading: entitlementsLoading } = useQuery({
     queryKey: ["entitlements-status"],
-    queryFn: fetchEntitlements,
+    queryFn: refreshEntitlements,
     enabled: session.authenticated,
     refetchInterval: session.authenticated ? 5 * 60_000 : false,
     refetchIntervalInBackground: false,

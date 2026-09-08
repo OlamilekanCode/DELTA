@@ -58,4 +58,5 @@ class CachedWalletBalance(Base):
     token_address: Mapped[str] = mapped_column(String(42), nullable=False)
     balance_raw: Mapped[str] = mapped_column(String(78), nullable=False)  # uint256 as decimal string
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    checked_block_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_holder: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

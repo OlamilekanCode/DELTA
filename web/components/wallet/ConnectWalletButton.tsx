@@ -2,13 +2,26 @@
 
 import { useAppKit } from "@reown/appkit/react";
 import { useAccount } from "wagmi";
+import { useWalletState } from "@/components/wallet/WalletStateManager";
 
 export default function ConnectWalletButton({ className = "" }: { className?: string }) {
   const { open } = useAppKit();
   const { address, isConnected } = useAccount();
+  const { state, entitlements } = useWalletState();
+
+  const shortAddress = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "";
+
+  // Never show a false "0 SynthEx" — omit the balance segment entirely
+  // whenever it hasn't been read yet (unconfigured token, or no refresh yet).
+  const authenticated = !["disconnected", "config_unavailable", "wrong_chain", "unauthenticated", "loading"].includes(state);
+  const balanceLabel = authenticated && entitlements?.synthex_balance != null
+    ? `${entitlements.synthex_balance} SynthEx`
+    : null;
 
   const label = isConnected && address
-    ? `${address.slice(0, 6)}…${address.slice(-4)}`
+    ? balanceLabel
+      ? `${balanceLabel} · ${shortAddress}`
+      : shortAddress
     : "Connect wallet";
 
   return (
