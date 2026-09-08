@@ -5,7 +5,7 @@ import { fetchAsset, fetchAssetHistory, fetchExposures } from "@/lib/api";
 import type { ApiAsset, ApiAssetHistoryOut, ApiExposuresResult } from "@/lib/types";
 import FreshnessLabel from "@/components/shared/FreshnessLabel";
 import StockExposureList from "@/components/asset/StockExposureList";
-import AssetHistoryChartClient from "@/components/asset/AssetHistoryChartClient";
+import AssetHistorySection from "@/components/asset/AssetHistorySection";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "Layer 1": "#F4C95D", "Layer 2": "#3D7BFF", "DeFi": "#9B7BFF",
@@ -154,26 +154,15 @@ export default async function AssetPage({ params }: Props) {
       {/* Price history chart */}
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <h2 className="mb-4 font-heading text-xl font-bold text-text">Price History</h2>
-        <div className="overflow-hidden rounded-2xl border border-white/[0.09] bg-panel p-5">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="font-mono text-xs text-muted">90-day daily close</p>
-            {history && (
-              <FreshnessLabel
-                isDemo={history.is_demo ?? null}
-                provider={history.provider}
-              />
-            )}
+        {history ? (
+          <AssetHistorySection symbol={sym} color={chartColor} initialHistory={history} />
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-white/[0.09] bg-panel p-5">
+            <div className="flex h-56 items-center justify-center sm:h-72">
+              <p className="font-mono text-sm text-muted">No price history available.</p>
+            </div>
           </div>
-          <div className="h-56 sm:h-72">
-            {history && history.prices.length > 0 ? (
-              <AssetHistoryChartClient prices={history.prices} color={chartColor} />
-            ) : (
-              <div className="flex h-full items-center justify-center">
-                <p className="font-mono text-sm text-muted">No price history available.</p>
-              </div>
-            )}
-          </div>
-        </div>
+        )}
 
         {asset.asset_type === "stock" && (
           <div className="mt-4 flex gap-3">

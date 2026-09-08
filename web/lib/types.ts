@@ -60,6 +60,7 @@ export interface ApiAssetListOut {
 export interface ApiHistoryPoint {
   date: string;
   close: number;
+  ts?: string | null;
 }
 
 export interface ApiAssetHistoryOut {
@@ -68,6 +69,7 @@ export interface ApiAssetHistoryOut {
   prices: ApiHistoryPoint[];
   is_demo: boolean | null;
   provider: string;
+  collecting_data?: boolean | null;
 }
 
 export interface ApiExposureScore {

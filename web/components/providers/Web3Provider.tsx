@@ -2,8 +2,14 @@
 
 import { createAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
-// TODO: replace `base` with Robinhood Chain once chain ID, RPC URL and
-// contract addresses are supplied. Base (8453) is a temporary placeholder only.
+// TODO: replace `base` with Robinhood Chain once its chain ID, a public RPC
+// URL and contract addresses are supplied — none of which exist yet and none
+// may be invented. Base (8453) is a temporary SDK-init placeholder only; it
+// must never be treated as "the correct chain" for access decisions. Actual
+// chain-correctness gating happens in WalletStateManager, which compares the
+// wallet's connected chain ID against NEXT_PUBLIC_SYNTHEX_CHAIN_ID and shows
+// "wrong chain" / "config unavailable" states accordingly — connecting to
+// this placeholder network is never treated as success.
 import { base } from "@reown/appkit/networks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";

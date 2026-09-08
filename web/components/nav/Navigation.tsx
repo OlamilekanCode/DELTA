@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import ConnectWalletButton from "@/components/wallet/ConnectWalletButton";
 import BrandLogo from "@/components/shared/BrandLogo";
+import MarketStatusBadge from "@/components/market/MarketStatusBadge";
 
 const navLinks: { href: string; label: string }[] = [
   { href: "/explore",     label: "Explore" },
@@ -100,6 +101,7 @@ export default function Navigation() {
               </svg>
             </a>
 
+            <MarketStatusBadge className="hidden lg:inline-flex" />
             <ConnectWalletButton className="hidden md:inline-flex" />
 
             {/* Mobile hamburger */}

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import PortfolioGate from "@/components/wallet/PortfolioGate";
+import PortfolioExposure from "@/components/portfolio/PortfolioExposure";
 
 export const metadata: Metadata = {
   title: "Portfolio — Synthetic Exposure",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function PortfolioPage() {
-  return <PortfolioGate />;
+  return <PortfolioExposure />;
 }
