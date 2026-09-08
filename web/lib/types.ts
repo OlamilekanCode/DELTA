@@ -113,3 +113,27 @@ export interface ApiGraphResult {
   demo: boolean;
   computed_at: string | null;
 }
+
+export interface ApiIntradayScore {
+  symbol: string;
+  name: string;
+  category: string;
+  score: number;
+  observations: number;
+}
+
+export interface ApiIntradayResult {
+  stock: { symbol: string; name: string };
+  status: "ready" | "collecting_data";
+  scores: ApiIntradayScore[];
+  interval: string;
+  sessions_used: number;
+  demo: boolean;
+  current_count: number | null;
+  required_count: number | null;
+  estimated_ready: string | null;
+  data_ts: string | null;
+  freshness: "fresh" | "stale" | "collecting_data" | "market_closed" | null;
+  market_is_open: boolean | null;
+  next_market_open: string | null;
+}
