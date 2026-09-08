@@ -9,14 +9,35 @@ from app.models.price import DailyPrice
 from app.services.correlation import MIN_OBSERVATIONS, PricePoint, compute_exposure_scores
 
 
-async def _load_prices(db: AsyncSession, asset_id: int, days: int) -> list[PricePoint]:
+async def _load_prices(
+    db: AsyncSession, asset_id: int, days: int, prefer_adj_close: bool
+) -> tuple[list[PricePoint], bool]:
+    """Load daily prices, preferring adj_close over close when available (stocks only).
+
+    Rejects missing, zero or negative prices. Returns the aligned points plus
+    whether any row had to fall back from adj_close to close.
+    """
     cutoff = (date.today() - timedelta(days=days)).isoformat()
     result = await db.execute(
-        select(DailyPrice.date, DailyPrice.close)
+        select(DailyPrice.date, DailyPrice.close, DailyPrice.adj_close)
         .where(DailyPrice.asset_id == asset_id, DailyPrice.date >= cutoff)
         .order_by(DailyPrice.date.asc())
     )
-    return [PricePoint(date=r.date, close=r.close) for r in result.all()]
+    points: list[PricePoint] = []
+    any_fallback = False
+    for r in result.all():
+        used_fallback = False
+        if prefer_adj_close and r.adj_close is not None and r.adj_close > 0:
+            effective = r.adj_close
+        else:
+            effective = r.close
+            used_fallback = prefer_adj_close
+        if effective is None or effective <= 0:
+            continue
+        if used_fallback:
+            any_fallback = True
+        points.append(PricePoint(date=r.date, close=effective))
+    return points, any_fallback
 
 
 async def recompute_all_scores(db: AsyncSession) -> int:
@@ -56,7 +77,9 @@ async def recompute_all_scores(db: AsyncSession) -> int:
         demo_asset_ids = set()
 
     for stock in stocks:
-        stock_prices = await _load_prices(db, stock.id, 90)
+        stock_prices, stock_adj_close_fallback = await _load_prices(
+            db, stock.id, 90, prefer_adj_close=True
+        )
         if len(stock_prices) < 2:
             continue
 
@@ -64,7 +87,7 @@ async def recompute_all_scores(db: AsyncSession) -> int:
 
         crypto_map: dict[str, tuple[str, str, list[PricePoint]]] = {}
         for ca in crypto_assets:
-            cp = await _load_prices(db, ca.id, 90)
+            cp, _ = await _load_prices(db, ca.id, 90, prefer_adj_close=False)
             if len(cp) >= 2:
                 crypto_map[ca.symbol] = (ca.name, ca.category, cp)
 
@@ -78,7 +101,12 @@ async def recompute_all_scores(db: AsyncSession) -> int:
             # Pair-level is_demo: True if EITHER the stock OR the crypto has demo prices.
             # Only mark live (False) when both assets use real provider data.
             pair_is_demo = stock_is_demo or (ca.id in demo_asset_ids)
-            data_quality = "ok" if s.observations >= MIN_OBSERVATIONS * 1.2 else "low_observations"
+            if stock_adj_close_fallback:
+                data_quality = "adj_close_missing"
+            elif s.observations < MIN_OBSERVATIONS * 1.2:
+                data_quality = "low_observations"
+            else:
+                data_quality = "ok"
             db.add(StoredExposureScore(
                 stock_id=stock.id,
                 crypto_id=crypto_id,

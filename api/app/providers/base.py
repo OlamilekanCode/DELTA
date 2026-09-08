@@ -8,6 +8,7 @@ class PriceRow:
     date: str    # "YYYY-MM-DD"
     close: float
     volume: float | None = None
+    adj_close: float | None = None
 
 
 @dataclass

@@ -194,6 +194,7 @@ class FixtureProvider:
             PriceRow(
                 date=(today - timedelta(days=n - 1 - i)).isoformat(),
                 close=float(close),
+                adj_close=float(close),
             )
             for i, close in enumerate(prices[-n:])
         ]

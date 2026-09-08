@@ -6,6 +6,17 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from app.providers.base import PriceRow, ProviderError
 
 
+def _valid_adj_close(raw: object) -> float | None:
+    """Reject missing, zero or negative adjusted-close values."""
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 class MarketstackProvider:
     BASE = "https://api.marketstack.com/v1"
 
@@ -51,7 +62,8 @@ class MarketstackProvider:
             close: float = float(raw_close)
             if close <= 0:
                 continue
-            rows.append(PriceRow(date=raw_date[:10], close=close))
+            adj_close = _valid_adj_close(item.get("adj_close"))
+            rows.append(PriceRow(date=raw_date[:10], close=close, adj_close=adj_close))
 
         return rows[-days:]
 
@@ -99,6 +111,9 @@ class MarketstackProvider:
                 continue
             close = float(raw_close)
             if close > 0:
-                by_symbol[sym].append(PriceRow(date=raw_date[:10], close=close))
+                adj_close = _valid_adj_close(item.get("adj_close"))
+                by_symbol[sym].append(
+                    PriceRow(date=raw_date[:10], close=close, adj_close=adj_close)
+                )
 
         return {sym: rows[-days:] for sym, rows in by_symbol.items()}

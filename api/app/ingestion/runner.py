@@ -62,6 +62,7 @@ async def _upsert_prices(
         if r.date in existing_by_date:
             rec = existing_by_date[r.date]
             rec.close = r.close
+            rec.adj_close = r.adj_close
             rec.volume = r.volume
             rec.is_demo = is_demo
         else:
@@ -70,6 +71,7 @@ async def _upsert_prices(
                     asset_id=asset_id,
                     date=r.date,
                     close=r.close,
+                    adj_close=r.adj_close,
                     volume=r.volume,
                     is_demo=is_demo,
                 )

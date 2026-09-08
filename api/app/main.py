@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import app.models  # noqa: F401 — register all ORM models with Base
 from app.config import get_settings
 from app.database import Base, get_engine, init_db
-from app.routers import assets, correlation, cron, exposures, graphs, health
+from app.routers import assets, correlation, cron, exposures, graphs, health, market_status
 
 
 @asynccontextmanager
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
     application.include_router(exposures.router, prefix="/api/v1")
     application.include_router(graphs.router, prefix="/api/v1")
     application.include_router(cron.router, prefix="/api/v1")
+    application.include_router(market_status.router, prefix="/api/v1")
 
     return application
 
