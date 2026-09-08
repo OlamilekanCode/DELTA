@@ -25,10 +25,19 @@ from app.routers import (
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
+    if settings.app_env == "production" and not settings.has_strong_session_secret:
+        raise RuntimeError(
+            "SESSION_SECRET must be set to a strong random value (32+ chars, not the default) "
+            "in production — it HMAC-signs stored session-token hashes."
+        )
     init_db(settings.database_url)
 
-    async with get_engine().begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Schema management: SQLite (dev/test) creates tables directly since it
+    # has no separate migration deployment step; PostgreSQL (production)
+    # relies exclusively on Alembic — see `alembic upgrade head`.
+    if get_engine().dialect.name != "postgresql":
+        async with get_engine().begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
     if settings.use_demo_data:
         from sqlalchemy import func, select
