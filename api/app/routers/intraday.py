@@ -1,10 +1,11 @@
 import math
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.dependencies import enforce_asset_access
 from app.models.asset import Asset
 from app.models.intraday_price import IntradayPrice
 from app.schemas.correlation import StockInfo
@@ -25,6 +26,7 @@ _BUCKETS_PER_SESSION = int((6.5 * 60) // BUCKET_MINUTES)  # regular NYSE session
 @router.get("/intraday/{symbol}", response_model=IntradayResult)
 async def get_intraday(
     symbol: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> IntradayResult:
     stock_symbol = symbol.upper()
@@ -35,6 +37,7 @@ async def get_intraday(
     stock = stock_result.scalar_one_or_none()
     if not stock:
         raise HTTPException(status_code=404, detail=f"Stock {stock_symbol!r} not found")
+    await enforce_asset_access(request, db, stock.access)
 
     crypto_result = await db.execute(
         select(Asset).where(Asset.asset_type == "crypto").order_by(Asset.symbol)

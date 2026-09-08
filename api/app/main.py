@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.database import Base, get_engine, init_db
 from app.routers import (
     assets,
+    auth,
     correlation,
     cron,
     exposures,
@@ -82,6 +83,7 @@ def create_app() -> FastAPI:
     application.include_router(cron.router, prefix="/api/v1")
     application.include_router(market_status.router, prefix="/api/v1")
     application.include_router(intraday.router, prefix="/api/v1")
+    application.include_router(auth.router, prefix="/api/v1")
 
     return application
 

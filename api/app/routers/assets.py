@@ -1,10 +1,11 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.dependencies import enforce_asset_access
 from app.models.asset import Asset
 from app.models.intraday_price import IntradayPrice
 from app.models.price import DailyPrice
@@ -125,13 +126,14 @@ async def search_assets(
 
 
 @router.get("/assets/{symbol}", response_model=AssetOut)
-async def get_asset(symbol: str, db: AsyncSession = Depends(get_db)) -> AssetOut:
+async def get_asset(symbol: str, request: Request, db: AsyncSession = Depends(get_db)) -> AssetOut:
     result = await db.execute(
         select(Asset).where(func.upper(Asset.symbol) == symbol.upper())
     )
     asset = result.scalar_one_or_none()
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset {symbol!r} not found")
+    await enforce_asset_access(request, db, asset.access)
     price_map = await _latest_prices(db)
     quote_map = await _latest_quotes(db)
     return _asset_out(asset, price_map.get(asset.id), quote_map.get(asset.id))
@@ -140,6 +142,7 @@ async def get_asset(symbol: str, db: AsyncSession = Depends(get_db)) -> AssetOut
 @router.get("/assets/{symbol}/history", response_model=AssetHistoryOut)
 async def get_asset_history(
     symbol: str,
+    request: Request,
     days: int = Query(default=90, ge=7, le=365),
     range: Literal["4H", "1D", "1W", "1M", "3M", "1Y"] | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
@@ -150,6 +153,7 @@ async def get_asset_history(
     asset = result.scalar_one_or_none()
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset {symbol!r} not found")
+    await enforce_asset_access(request, db, asset.access)
 
     if range in _INTRADAY_RANGE_BUCKETS:
         return await _asset_history_intraday(db, asset, range)

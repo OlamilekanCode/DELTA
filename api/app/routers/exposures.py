@@ -1,10 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.dependencies import enforce_asset_access
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
 from app.schemas.correlation import ExposureScoreOut, StockInfo
@@ -18,6 +19,7 @@ _STALE_HOURS = 25
 @router.get("/exposures/{stock_symbol}", response_model=ExposuresResult)
 async def get_exposures(
     stock_symbol: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> ExposuresResult:
     symbol = stock_symbol.upper()
@@ -28,6 +30,7 @@ async def get_exposures(
     stock = stock_result.scalar_one_or_none()
     if not stock:
         raise HTTPException(status_code=404, detail=f"Stock {symbol!r} not found")
+    await enforce_asset_access(request, db, stock.access)
 
     stored_result = await db.execute(
         select(StoredExposureScore)

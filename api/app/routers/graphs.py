@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.dependencies import enforce_asset_access
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
 from app.schemas.correlation import StockInfo
@@ -16,6 +17,7 @@ _GRAPH_MAX_NODES = 12
 @router.get("/graphs/{stock_symbol}", response_model=GraphResult)
 async def get_graph(
     stock_symbol: str,
+    request: Request,
     min_score: float = Query(default=0.0, ge=0.0, le=1.0),
     db: AsyncSession = Depends(get_db),
 ) -> GraphResult:
@@ -27,6 +29,7 @@ async def get_graph(
     stock = stock_result.scalar_one_or_none()
     if not stock:
         raise HTTPException(status_code=404, detail=f"Stock {symbol!r} not found")
+    await enforce_asset_access(request, db, stock.access)
 
     # Filter on abs(score) so inverse relationships are not silently excluded.
     stored_result = await db.execute(
