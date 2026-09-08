@@ -54,6 +54,8 @@ def _build_message(
     chain_id: int = TEST_CHAIN_ID,
     domain: str = TEST_DOMAIN,
     uri: str = TEST_URI,
+    version: str = "1",
+    extra_lines: str = "",
 ) -> str:
     now = datetime.now(UTC)
     issued_at = issued_at or now
@@ -65,11 +67,12 @@ def _build_message(
         "Sign in to Synthetic Exposure.\n"
         "\n"
         f"URI: {uri}\n"
-        "Version: 1\n"
+        f"Version: {version}\n"
         f"Chain ID: {chain_id}\n"
         f"Nonce: {nonce}\n"
         f"Issued At: {issued_at.isoformat()}\n"
         f"Expiration Time: {expiration.isoformat()}\n"
+        f"{extra_lines}"
     )
 
 
@@ -273,10 +276,10 @@ async def test_auth_verify_fails_closed_when_chain_unconfigured(client: AsyncCli
 
 
 @pytest.mark.asyncio
-async def test_holder_asset_returns_403_without_session(client: AsyncClient) -> None:
+async def test_holder_asset_returns_401_without_session(client: AsyncClient) -> None:
     r = await client.get("/api/v1/assets/AMZN")
-    assert r.status_code == 403
-    assert r.json()["detail"] == "holder_required"
+    assert r.status_code == 401
+    assert r.json()["detail"] == "authentication_required"
 
 
 @pytest.mark.asyncio
@@ -286,27 +289,176 @@ async def test_free_asset_accessible_without_session(client: AsyncClient) -> Non
 
 
 @pytest.mark.asyncio
-async def test_holder_asset_history_returns_403(client: AsyncClient) -> None:
+async def test_holder_asset_history_returns_401_without_session(client: AsyncClient) -> None:
     r = await client.get("/api/v1/assets/AMZN/history")
-    assert r.status_code == 403
+    assert r.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_holder_stock_exposures_returns_403(client: AsyncClient) -> None:
+async def test_holder_stock_exposures_returns_401_without_session(client: AsyncClient) -> None:
     r = await client.get("/api/v1/exposures/AMZN")
-    assert r.status_code == 403
+    assert r.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_holder_stock_graph_returns_403(client: AsyncClient) -> None:
+async def test_holder_stock_graph_returns_401_without_session(client: AsyncClient) -> None:
     r = await client.get("/api/v1/graphs/AMZN")
-    assert r.status_code == 403
+    assert r.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_holder_stock_intraday_returns_403(client: AsyncClient) -> None:
+async def test_holder_stock_intraday_returns_401_without_session(client: AsyncClient) -> None:
     r = await client.get("/api/v1/intraday/AMZN")
-    assert r.status_code == 403
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_verify_siwe_message_rejects_wrong_version(db: AsyncSession, configured) -> None:
+    account = Account.create()
+    nonce, _ = await create_nonce(db)
+    message = _build_message(account.address, nonce, version="2")
+    signature = _sign(account, message)
+
+    with pytest.raises(SiweError) as exc_info:
+        await verify_siwe_message(db, message, signature)
+    assert exc_info.value.code == "unsupported_version"
+
+
+@pytest.mark.asyncio
+async def test_verify_siwe_message_rejects_malformed_address(db: AsyncSession, configured) -> None:
+    account = Account.create()
+    nonce, _ = await create_nonce(db)
+    message = _build_message("not-an-address", nonce)
+    signature = _sign(account, message)
+
+    with pytest.raises(SiweError) as exc_info:
+        await verify_siwe_message(db, message, signature)
+    assert exc_info.value.code == "malformed_address"
+
+
+@pytest.mark.asyncio
+async def test_verify_siwe_message_rejects_wrong_uri_scheme(db: AsyncSession, configured) -> None:
+    account = Account.create()
+    nonce, _ = await create_nonce(db)
+    message = _build_message(account.address, nonce, uri="javascript:alert(1)")
+    signature = _sign(account, message)
+
+    with pytest.raises(SiweError) as exc_info:
+        await verify_siwe_message(db, message, signature)
+    assert exc_info.value.code == "uri_scheme_invalid"
+
+
+@pytest.mark.asyncio
+async def test_verify_siwe_message_rejects_uri_not_in_allowlist(db: AsyncSession, configured) -> None:
+    account = Account.create()
+    nonce, _ = await create_nonce(db)
+    message = _build_message(account.address, nonce, uri="http://evil.example.com")
+    signature = _sign(account, message)
+
+    with pytest.raises(SiweError) as exc_info:
+        await verify_siwe_message(db, message, signature)
+    assert exc_info.value.code == "uri_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_verify_siwe_message_rejects_duplicate_field(db: AsyncSession, configured) -> None:
+    account = Account.create()
+    nonce, _ = await create_nonce(db)
+    message = _build_message(account.address, nonce, extra_lines="Nonce: some-other-nonce\n")
+    signature = _sign(account, message)
+
+    with pytest.raises(SiweError) as exc_info:
+        await verify_siwe_message(db, message, signature)
+    assert exc_info.value.code == "duplicate_field_nonce"
+
+
+@pytest.mark.asyncio
+async def test_verify_siwe_message_rejects_oversized_message(db: AsyncSession, configured) -> None:
+    account = Account.create()
+    nonce, _ = await create_nonce(db)
+    message = _build_message(account.address, nonce, extra_lines="X" * 3000 + "\n")
+    signature = _sign(account, message)
+
+    with pytest.raises(SiweError) as exc_info:
+        await verify_siwe_message(db, message, signature)
+    assert exc_info.value.code == "message_too_long"
+
+
+@pytest.mark.asyncio
+async def test_verify_siwe_message_rejects_future_issued_at(db: AsyncSession, configured) -> None:
+    account = Account.create()
+    nonce, _ = await create_nonce(db)
+    now = datetime.now(UTC)
+    message = _build_message(
+        account.address, nonce, issued_at=now + timedelta(hours=1), expiration=now + timedelta(hours=2)
+    )
+    signature = _sign(account, message)
+
+    with pytest.raises(SiweError) as exc_info:
+        await verify_siwe_message(db, message, signature)
+    assert exc_info.value.code == "issued_in_future"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_nonce_consumption_only_one_succeeds(db: AsyncSession, configured) -> None:
+    """The nonce consume is a single conditional UPDATE ... WHERE used = false,
+    not a SELECT-then-UPDATE — simulate two racing consumers via independent
+    sessions on the same underlying database and confirm only one wins."""
+    import asyncio
+
+    from sqlalchemy import select, update
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.models.auth import AuthNonce
+
+    nonce, _ = await create_nonce(db)
+    nonce_row = (
+        await db.execute(select(AuthNonce).where(AuthNonce.nonce == nonce))
+    ).scalar_one()
+    nonce_id = nonce_row.id
+
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///./test.db", connect_args={"check_same_thread": False}
+    )
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def _try_consume() -> int:
+        async with factory() as session:
+            result = await session.execute(
+                update(AuthNonce)
+                .where(AuthNonce.id == nonce_id, AuthNonce.used == False)  # noqa: E712
+                .values(used=True)
+            )
+            await session.commit()
+            return result.rowcount
+
+    rowcounts = await asyncio.gather(_try_consume(), _try_consume())
+    await engine.dispose()
+    assert sorted(rowcounts) == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_session_token_hash_uses_session_secret_pepper(db: AsyncSession, configured, monkeypatch) -> None:
+    """Changing SESSION_SECRET must invalidate previously issued session tokens."""
+    account = Account.create()
+    nonce, _ = await create_nonce(db)
+    message = _build_message(account.address, nonce)
+    signature = _sign(account, message)
+    wallet = await verify_siwe_message(db, message, signature)
+
+    token, _ = await create_session(db, wallet)
+    assert await get_session_wallet(db, token) == wallet.wallet_address
+
+    different_secret_settings = _configured_settings(session_secret="a-totally-different-pepper-value-xyz")
+    monkeypatch.setattr(auth_service, "get_settings", lambda: different_secret_settings)
+    assert await get_session_wallet(db, token) is None
+
+
+@pytest.mark.asyncio
+async def test_nonce_rate_limit_returns_429(client: AsyncClient) -> None:
+    responses = [await client.post("/api/v1/auth/nonce") for _ in range(25)]
+    statuses = [r.status_code for r in responses]
+    assert 429 in statuses
 
 
 @pytest.mark.asyncio

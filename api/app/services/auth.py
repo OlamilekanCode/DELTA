@@ -1,9 +1,12 @@
 """SIWE (ERC-4361) wallet authentication: nonce issuance, message verification,
 and opaque server-side sessions. Session tokens are never stored — only their
-SHA-256 hash — so a database leak alone cannot be used to impersonate a session.
+HMAC-SHA256 digest (keyed by SESSION_SECRET) — so a database leak alone
+cannot be used to impersonate a session, and cannot be replayed even if an
+attacker also learns SESSION_SECRET without the original token.
 """
 
 import hashlib
+import hmac
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -11,7 +14,7 @@ from urllib.parse import urlparse
 
 from eth_account import Account
 from eth_account.messages import encode_defunct
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -20,9 +23,14 @@ from app.models.auth import AuthNonce, Session, WalletUser
 NONCE_TTL = timedelta(minutes=5)
 SESSION_TTL = timedelta(days=30)
 
+_MAX_MESSAGE_LENGTH = 2048
+_MAX_SIGNATURE_LENGTH = 300  # a standard 65-byte ECDSA sig hex-encodes to 132 chars; generous headroom
+_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
+
 _FIELD_PATTERNS = {
     "uri": re.compile(r"^URI: (.+)$", re.MULTILINE),
-    "chain_id": re.compile(r"^Chain ID: (\d+)$", re.MULTILINE),
+    "version": re.compile(r"^Version: (.+)$", re.MULTILINE),
+    "chain_id": re.compile(r"^Chain ID: (.+)$", re.MULTILINE),
     "nonce": re.compile(r"^Nonce: (.+)$", re.MULTILINE),
     "issued_at": re.compile(r"^Issued At: (.+)$", re.MULTILINE),
     "expiration_time": re.compile(r"^Expiration Time: (.+)$", re.MULTILINE),
@@ -51,6 +59,9 @@ async def create_nonce(db: AsyncSession) -> tuple[str, datetime]:
 
 
 def _parse_siwe_message(message: str) -> dict[str, str]:
+    if len(message) > _MAX_MESSAGE_LENGTH:
+        raise SiweError("message_too_long")
+
     lines = message.splitlines()
     if len(lines) < 2:
         raise SiweError("malformed_message")
@@ -59,22 +70,40 @@ def _parse_siwe_message(message: str) -> dict[str, str]:
     if not domain_match:
         raise SiweError("malformed_message")
 
-    fields = {"domain": domain_match.group(1), "address": lines[1].strip()}
+    address = lines[1].strip()
+    if not _ADDRESS_RE.match(address):
+        raise SiweError("malformed_address")
+
+    fields = {"domain": domain_match.group(1), "address": address}
     for key, pattern in _FIELD_PATTERNS.items():
-        m = pattern.search(message)
-        if not m:
+        matches = pattern.findall(message)
+        if not matches:
             raise SiweError(f"missing_field_{key}")
-        fields[key] = m.group(1)
+        if len(matches) > 1:
+            raise SiweError(f"duplicate_field_{key}")
+        fields[key] = matches[0]
+
+    if fields["version"] != "1":
+        raise SiweError("unsupported_version")
+
     return fields
 
 
-def _allowed_domains(settings: Settings) -> set[str]:
-    return {urlparse(o).netloc or o for o in settings.parsed_cors_origins}
+def _validate_uri(uri: str, allowed_uris: set[str]) -> None:
+    parsed = urlparse(uri)
+    if parsed.scheme not in ("http", "https"):
+        raise SiweError("uri_scheme_invalid")
+    if not parsed.netloc:
+        raise SiweError("uri_host_invalid")
+    if uri.rstrip("/") not in allowed_uris:
+        raise SiweError("uri_mismatch")
 
 
 async def verify_siwe_message(db: AsyncSession, message: str, signature: str) -> WalletUser:
-    """Validate domain, URI, chain ID, nonce, issued-at/expiry and the signature,
-    then consume the nonce (replay protection) and upsert the wallet user.
+    """Validate the complete EIP-4361 structure (domain, address, URI, version,
+    chain ID, nonce, issued-at/expiry, no duplicate fields), the signature,
+    then atomically consume the nonce (replay protection) and upsert the
+    wallet user.
 
     Raises RuntimeError if the chain isn't configured yet, SiweError otherwise.
     """
@@ -82,14 +111,20 @@ async def verify_siwe_message(db: AsyncSession, message: str, signature: str) ->
     if settings.synthex_chain_id == 0:
         raise RuntimeError("chain not configured")
 
-    fields = _parse_siwe_message(message)
-    allowed = _allowed_domains(settings)
+    if len(signature) > _MAX_SIGNATURE_LENGTH:
+        raise SiweError("signature_too_long")
 
-    if fields["domain"] not in allowed:
+    fields = _parse_siwe_message(message)
+
+    if fields["domain"] not in settings.parsed_siwe_domains:
         raise SiweError("domain_mismatch")
-    if urlparse(fields["uri"]).netloc not in allowed:
-        raise SiweError("uri_mismatch")
-    if int(fields["chain_id"]) != settings.synthex_chain_id:
+    _validate_uri(fields["uri"], settings.parsed_siwe_uris)
+
+    try:
+        chain_id = int(fields["chain_id"])
+    except ValueError as e:
+        raise SiweError("malformed_chain_id") from e
+    if chain_id != settings.synthex_chain_id:
         raise SiweError("chain_mismatch")
 
     now = datetime.now(UTC)
@@ -103,15 +138,8 @@ async def verify_siwe_message(db: AsyncSession, message: str, signature: str) ->
     if issued_at > now + timedelta(minutes=1):
         raise SiweError("issued_in_future")
 
-    nonce_result = await db.execute(select(AuthNonce).where(AuthNonce.nonce == fields["nonce"]))
-    nonce_row = nonce_result.scalar_one_or_none()
-    if nonce_row is None:
-        raise SiweError("invalid_nonce")
-    if nonce_row.used:
-        raise SiweError("nonce_reused")
-    if nonce_row.expires_at.replace(tzinfo=UTC) < now:
-        raise SiweError("nonce_expired")
-
+    # Verify the signature BEFORE consuming the nonce — an unauthenticated
+    # caller must never be able to burn someone else's nonce.
     try:
         recovered = Account.recover_message(encode_defunct(text=message), signature=signature)
     except Exception as e:
@@ -120,7 +148,23 @@ async def verify_siwe_message(db: AsyncSession, message: str, signature: str) ->
     if recovered.lower() != fields["address"].lower():
         raise SiweError("signature_address_mismatch")
 
-    nonce_row.used = True
+    # Atomic conditional consume: UPDATE ... WHERE used = false. A concurrent
+    # second request for the same nonce gets rowcount == 0 and fails closed,
+    # instead of a SELECT-then-UPDATE race where both could pass the check.
+    nonce_result = await db.execute(select(AuthNonce).where(AuthNonce.nonce == fields["nonce"]))
+    nonce_row = nonce_result.scalar_one_or_none()
+    if nonce_row is None:
+        raise SiweError("invalid_nonce")
+    if nonce_row.expires_at.replace(tzinfo=UTC) < now:
+        raise SiweError("nonce_expired")
+
+    consume_result = await db.execute(
+        update(AuthNonce)
+        .where(AuthNonce.id == nonce_row.id, AuthNonce.used == False)  # noqa: E712
+        .values(used=True)
+    )
+    if consume_result.rowcount == 0:
+        raise SiweError("nonce_reused")
 
     wallet_address = recovered.lower()
     wallet_result = await db.execute(
@@ -138,8 +182,16 @@ async def verify_siwe_message(db: AsyncSession, message: str, signature: str) ->
     return wallet
 
 
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
+def _hash_token(token: str, settings: Settings | None = None) -> str:
+    """HMAC-SHA256 of the session token, keyed by SESSION_SECRET (a pepper).
+
+    Using HMAC instead of a bare SHA-256 digest means a stolen database dump
+    alone is insufficient to forge a valid Authorization header — the
+    attacker would also need SESSION_SECRET, which never leaves the server.
+    """
+    settings = settings or get_settings()
+    key = settings.session_secret.encode()
+    return hmac.new(key, token.encode(), hashlib.sha256).hexdigest()
 
 
 async def create_session(db: AsyncSession, wallet: WalletUser) -> tuple[str, datetime]:
@@ -180,3 +232,18 @@ async def revoke_session(db: AsyncSession, token: str) -> None:
     if session is not None:
         session.revoked_at = datetime.now(UTC)
         await db.commit()
+
+
+async def cleanup_expired_auth_rows(db: AsyncSession) -> dict:
+    """Idempotently delete expired nonces and long-expired sessions. Safe to
+    run repeatedly — deleting already-deleted rows is a no-op."""
+    from sqlalchemy import delete
+
+    now = datetime.now(UTC)
+    nonce_result = await db.execute(delete(AuthNonce).where(AuthNonce.expires_at < now))
+    # Keep revoked/expired sessions a little past expiry for audit purposes,
+    # then drop them — 30 days past expiry mirrors the session TTL itself.
+    session_cutoff = now - timedelta(days=30)
+    session_result = await db.execute(delete(Session).where(Session.expires_at < session_cutoff))
+    await db.commit()
+    return {"nonces_deleted": nonce_result.rowcount, "sessions_deleted": session_result.rowcount}

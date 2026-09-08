@@ -45,6 +45,17 @@ async def db():
     await engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """The auth rate limiter is in-process global state — reset it between
+    tests so one test's request volume can't trip another's limit."""
+    from app.services.rate_limit import reset_rate_limits
+
+    reset_rate_limits()
+    yield
+    reset_rate_limits()
+
+
 @pytest.fixture()
 async def client(db):
     engine = create_async_engine(TEST_DB_URL, connect_args={"check_same_thread": False})

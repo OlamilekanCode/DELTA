@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,8 +11,13 @@ from app.services.auth import (
     revoke_session,
     verify_siwe_message,
 )
+from app.services.holder import refresh_wallet_balance
+from app.services.rate_limit import enforce_rate_limit
 
 router = APIRouter(prefix="/auth")
+
+_NONCE_RATE_LIMIT = 20  # per IP per minute
+_VERIFY_RATE_LIMIT = 10  # per IP per minute
 
 
 class NonceOut(BaseModel):
@@ -21,7 +26,8 @@ class NonceOut(BaseModel):
 
 
 @router.post("/nonce", response_model=NonceOut)
-async def issue_nonce(db: AsyncSession = Depends(get_db)) -> NonceOut:
+async def issue_nonce(request: Request, db: AsyncSession = Depends(get_db)) -> NonceOut:
+    enforce_rate_limit(request, "nonce", _NONCE_RATE_LIMIT)
     nonce, expires_at = await create_nonce(db)
     return NonceOut(nonce=nonce, expires_at=expires_at.isoformat())
 
@@ -38,7 +44,8 @@ class VerifyOut(BaseModel):
 
 
 @router.post("/verify", response_model=VerifyOut)
-async def verify(body: VerifyIn, db: AsyncSession = Depends(get_db)) -> VerifyOut:
+async def verify(body: VerifyIn, request: Request, db: AsyncSession = Depends(get_db)) -> VerifyOut:
+    enforce_rate_limit(request, "verify", _VERIFY_RATE_LIMIT)
     try:
         wallet = await verify_siwe_message(db, body.message, body.signature)
     except RuntimeError:
@@ -47,6 +54,9 @@ async def verify(body: VerifyIn, db: AsyncSession = Depends(get_db)) -> VerifyOu
         raise HTTPException(status_code=401, detail=e.code)
 
     token, expires_at = await create_session(db, wallet)
+    # Best-effort — an RPC/config failure here must never block a successful
+    # sign-in; refresh_wallet_balance already fails closed on its own.
+    await refresh_wallet_balance(db, wallet.wallet_address)
     return VerifyOut(
         wallet_address=wallet.wallet_address,
         session_token=token,

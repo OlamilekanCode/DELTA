@@ -9,6 +9,14 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     session_secret: str = "change-me-to-a-random-64-char-string"
 
+    # SIWE identity policy — deliberately separate from CORS. CORS controls
+    # which browser origins may call the API at all; these control which
+    # domain/URI values a SIWE message is allowed to assert. Left unset,
+    # they default to the CORS origins for developer convenience — set them
+    # explicitly in production to avoid any coupling between the two.
+    siwe_allowed_domains: str = ""
+    siwe_allowed_uris: str = ""
+
     marketstack_api_key: str = ""
     coingecko_api_key: str = ""
     coingecko_api_type: str = "demo"  # "demo" | "pro"
@@ -23,13 +31,58 @@ class Settings(BaseSettings):
     # Never expose this URL to the frontend.
     robinhood_rpc_url: str = ""
 
+    # $SynthEx/ETH purchase verification — all fail-closed until supplied.
+    synthex_dex_router_addresses: str = ""  # comma-separated
+    synthex_dex_pool_addresses: str = ""  # comma-separated
+    synthex_weth_address: str = ""
+    synthex_min_confirmations: int = 12
+    synthex_token_start_block: int = 0
+    eth_usd_max_price_age_minutes: int = 60
+
+    # Portfolio — Robinhood Chain is the primary gate; Ethereum/Base reads
+    # stay disabled (their RPCs unconfigured) until explicitly enabled.
+    portfolio_chain_ids: str = ""  # comma-separated, e.g. "8453,1"
+    ethereum_rpc_url: str = ""
+    base_rpc_url: str = ""
+
     cron_secret: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
+    def has_strong_session_secret(self) -> bool:
+        weak_defaults = {"change-me-to-a-random-64-char-string", ""}
+        return self.session_secret not in weak_defaults and len(self.session_secret) >= 32
+
+    @property
     def parsed_cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def parsed_siwe_domains(self) -> set[str]:
+        from urllib.parse import urlparse
+
+        if self.siwe_allowed_domains:
+            return {d.strip() for d in self.siwe_allowed_domains.split(",") if d.strip()}
+        return {urlparse(o).netloc or o for o in self.parsed_cors_origins}
+
+    @property
+    def parsed_siwe_uris(self) -> set[str]:
+        if self.siwe_allowed_uris:
+            return {u.strip().rstrip("/") for u in self.siwe_allowed_uris.split(",") if u.strip()}
+        return {o.rstrip("/") for o in self.parsed_cors_origins}
+
+    @property
+    def parsed_dex_router_addresses(self) -> set[str]:
+        return {a.strip().lower() for a in self.synthex_dex_router_addresses.split(",") if a.strip()}
+
+    @property
+    def parsed_dex_pool_addresses(self) -> set[str]:
+        return {a.strip().lower() for a in self.synthex_dex_pool_addresses.split(",") if a.strip()}
+
+    @property
+    def parsed_portfolio_chain_ids(self) -> set[int]:
+        return {int(c.strip()) for c in self.portfolio_chain_ids.split(",") if c.strip()}
 
 
 @lru_cache
