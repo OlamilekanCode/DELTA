@@ -2,15 +2,21 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSwitchChain } from "wagmi";
 import { useWalletState } from "@/components/wallet/WalletStateManager";
 import ConnectWalletButton from "@/components/wallet/ConnectWalletButton";
 import { formatScore } from "@/lib/format";
+import type { ApiAsset } from "@/lib/types";
 
 const DEX_URL = process.env.NEXT_PUBLIC_SYNTHEX_BUY_URL ?? "";
 const TIER_LABELS: Record<string, string> = {
   summary: "Summary", detailed: "Detailed", premium: "Premium",
+};
+const COMING_SOON_LABELS: Record<string, string> = {
+  advanced_graphs: "Advanced graphs",
+  longer_portfolio_history: "Longer portfolio history",
+  alerts: "Alerts",
 };
 
 function Shell({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
@@ -47,7 +53,7 @@ const TOKEN_PATH = "M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 
 const CHECK_PATH = "M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z";
 const WARN_PATH = "M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z";
 
-export default function PortfolioExposure() {
+export default function PortfolioExposure({ stocks }: { stocks: ApiAsset[] }) {
   const { state, entitlements, signInError, signingIn, signIn, configuredChainId, connectedChainId } = useWalletState();
   const { switchChain, isPending: switching } = useSwitchChain();
   const [switchError, setSwitchError] = useState<string | null>(null);
@@ -192,7 +198,7 @@ export default function PortfolioExposure() {
     case "tier_summary":
     case "tier_detailed":
     case "tier_premium":
-      return <PortfolioDetail tier={state} entitlements={entitlements} />;
+      return <PortfolioDetail tier={state} entitlements={entitlements} stocks={stocks} />;
 
     default:
       return null;
@@ -203,25 +209,107 @@ interface PortfolioExposureResponse {
   portfolio_exposure_score: number | null;
   note?: string;
   stock?: string;
+  stocks_covered?: number;
   assets?: { symbol: string; weight: number; score?: number }[];
   excluded?: { symbol?: string; contract_address?: string; reason: string }[];
   ranked?: { stock: string; portfolio_exposure_score: number; assets: { symbol: string; weight: number; score: number }[] }[];
+  category_exposure?: { category: string; weight: number }[];
+  coming_soon?: string[];
   data_ts?: string | null;
+}
+
+interface PortfolioRefreshResponse {
+  status: "ok" | "not_configured";
+  chains_attempted: number;
+  contracts_attempted: number;
+  positions_refreshed: number;
+  skipped: number;
+  failed: number;
+  message: string | null;
+}
+
+type RefreshState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "success"; result: PortfolioRefreshResponse }
+  | { kind: "partial"; result: PortfolioRefreshResponse }
+  | { kind: "not_configured"; result: PortfolioRefreshResponse }
+  | { kind: "error"; message: string };
+
+function RefreshWalletAssetsControl({ onRefreshed }: { onRefreshed: () => void }) {
+  const [refreshState, setRefreshState] = useState<RefreshState>({ kind: "idle" });
+
+  async function handleRefresh() {
+    setRefreshState({ kind: "loading" });
+    try {
+      const res = await fetch("/api/portfolio/refresh", { method: "POST" });
+      const body = (await res.json().catch(() => null)) as PortfolioRefreshResponse | null;
+      if (!res.ok || !body) {
+        setRefreshState({ kind: "error", message: "Couldn't refresh wallet assets — try again shortly." });
+        return;
+      }
+      if (body.status === "not_configured") {
+        setRefreshState({ kind: "not_configured", result: body });
+        return;
+      }
+      setRefreshState({ kind: body.failed > 0 || body.skipped > 0 ? "partial" : "success", result: body });
+      onRefreshed();
+    } catch {
+      setRefreshState({ kind: "error", message: "Couldn't refresh wallet assets — try again shortly." });
+    }
+  }
+
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-3">
+      <button
+        type="button"
+        disabled={refreshState.kind === "loading"}
+        onClick={handleRefresh}
+        className="inline-flex items-center gap-2 rounded-xl border border-white/[0.09] bg-panel2 px-4 py-2 font-mono text-xs font-bold text-text transition-all hover:bg-panel2/70 active:scale-95 disabled:opacity-50"
+      >
+        {refreshState.kind === "loading" ? "Refreshing…" : "Refresh wallet assets"}
+      </button>
+      {refreshState.kind === "success" && (
+        <span className="font-mono text-xs text-green">
+          {refreshState.result.positions_refreshed} position{refreshState.result.positions_refreshed === 1 ? "" : "s"} refreshed
+        </span>
+      )}
+      {refreshState.kind === "partial" && (
+        <span className="font-mono text-xs text-amber">
+          {refreshState.result.positions_refreshed} refreshed · {refreshState.result.skipped} skipped · {refreshState.result.failed} failed
+        </span>
+      )}
+      {refreshState.kind === "not_configured" && (
+        <span className="font-mono text-xs text-muted">
+          Wallet refresh isn&apos;t configured yet{refreshState.result.message ? ` — ${refreshState.result.message}` : ""}.
+        </span>
+      )}
+      {refreshState.kind === "error" && (
+        <span className="font-mono text-xs text-red-400">{refreshState.message}</span>
+      )}
+    </div>
+  );
 }
 
 function PortfolioDetail({
   tier,
   entitlements,
+  stocks,
 }: {
   tier: "tier_summary" | "tier_detailed" | "tier_premium";
   entitlements: { tier: string; cumulative_usd: number } | null;
+  stocks: ApiAsset[];
 }) {
   const showDetailed = tier === "tier_detailed" || tier === "tier_premium";
   const showComingSoon = tier === "tier_premium";
+  const queryClient = useQueryClient();
+  const [selectedStock, setSelectedStock] = useState("");
+
   const { data: exposure } = useQuery({
-    queryKey: ["portfolio-exposure"],
+    queryKey: ["portfolio-exposure", selectedStock],
     queryFn: async () => {
-      const res = await fetch("/api/portfolio/exposure", { cache: "no-store" });
+      const qs = selectedStock ? `?stock=${encodeURIComponent(selectedStock)}` : "";
+      const res = await fetch(`/api/portfolio/exposure${qs}`, { cache: "no-store" });
       if (!res.ok) return null;
       return res.json() as Promise<PortfolioExposureResponse>;
     },
@@ -230,7 +318,7 @@ function PortfolioDetail({
   const topRanked = exposure?.ranked?.[0] ?? null;
   const headlineScore = exposure?.portfolio_exposure_score ?? topRanked?.portfolio_exposure_score ?? null;
   const headlineStock = exposure?.stock ?? topRanked?.stock ?? null;
-  const hasPositions = Boolean(exposure?.assets?.length || exposure?.ranked?.length);
+  const hasPositions = Boolean(exposure?.assets?.length || exposure?.ranked?.length || exposure?.stocks_covered);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
@@ -242,6 +330,31 @@ function PortfolioDetail({
           </span>
         )}
       </div>
+
+      <RefreshWalletAssetsControl
+        onRefreshed={() => queryClient.invalidateQueries({ queryKey: ["portfolio-exposure"] })}
+      />
+
+      {stocks.length > 0 && (
+        <div className="mb-4">
+          <label htmlFor="portfolio-stock" className="mb-1.5 block font-mono text-xs uppercase tracking-widest text-muted">
+            View exposure for
+          </label>
+          <select
+            id="portfolio-stock"
+            value={selectedStock}
+            onChange={(e) => setSelectedStock(e.target.value)}
+            className="w-full max-w-xs rounded-xl border border-white/[0.09] bg-panel2 px-3 py-2 font-mono text-sm text-text focus:border-violet focus:outline-none sm:w-auto"
+          >
+            <option value="">All stocks (ranked)</option>
+            {stocks.map((s) => (
+              <option key={s.symbol} value={s.symbol}>
+                {s.symbol} — {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-white/[0.09] bg-panel p-6">
         <p className="font-mono text-xs uppercase tracking-widest text-muted">
@@ -256,6 +369,11 @@ function PortfolioDetail({
               ? "Signed correlation between your wallet's crypto holdings and the listed stock, weighted by portfolio share."
               : "No wallet positions found yet — refresh your wallet to read current on-chain holdings.")}
         </p>
+        {!showDetailed && exposure?.stocks_covered != null && exposure.stocks_covered > 0 && (
+          <p className="mt-2 font-mono text-[11px] text-muted/70">
+            Averaged across {exposure.stocks_covered} stock{exposure.stocks_covered === 1 ? "" : "s"} with exposure data.
+          </p>
+        )}
       </div>
 
       {showDetailed && (
@@ -274,6 +392,19 @@ function PortfolioDetail({
             <p className="font-mono text-sm text-muted/70">
               Detailed asset and sector exposure will appear here once wallet positions are refreshed.
             </p>
+          )}
+          {exposure?.category_exposure && exposure.category_exposure.length > 0 && (
+            <>
+              <p className="mb-2 mt-5 font-mono text-xs uppercase tracking-widest text-muted">Sector Exposure</p>
+              <ul className="space-y-1.5">
+                {exposure.category_exposure.map((c) => (
+                  <li key={c.category} className="flex items-center justify-between font-mono text-sm">
+                    <span className="text-text">{c.category}</span>
+                    <span className="text-muted">{(c.weight * 100).toFixed(1)}%</span>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
           {exposure?.ranked && exposure.ranked.length > 1 && (
             <>
@@ -295,12 +426,12 @@ function PortfolioDetail({
 
       {showComingSoon && (
         <div className="mt-4 flex flex-wrap gap-2">
-          {["Advanced graphs", "Longer portfolio history", "Alerts"].map((f) => (
+          {(exposure?.coming_soon ?? ["advanced_graphs", "longer_portfolio_history", "alerts"]).map((f) => (
             <span
               key={f}
               className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.09] bg-panel2 px-3 py-1 font-mono text-xs text-muted"
             >
-              {f} · <span className="text-violet-light">Coming Soon</span>
+              {COMING_SOON_LABELS[f] ?? f} · <span className="text-violet-light">Coming Soon</span>
             </span>
           ))}
         </div>
