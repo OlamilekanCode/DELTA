@@ -185,7 +185,7 @@ export default function HeroGraph() {
                     fontFamily="var(--font-ibm-plex-mono), monospace"
                     style={{ pointerEvents: "none" }}
                   >
-                    {node.score.toFixed(2)}
+                    {formatScore(node.score)}
                   </text>
                 </motion.g>
               ))}

@@ -1,4 +1,4 @@
-# DELTA — Synthetic Exposure API Reference
+# Synthetic Exposure — API Reference
 
 **Base URL**: `/api/v1`
 

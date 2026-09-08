@@ -1,4 +1,4 @@
-# DELTA — Synthetic Exposure Score Methodology
+# Synthetic Exposure — Score Methodology
 
 **Model version**: `pearson_v1`
 
@@ -99,4 +99,4 @@ Scores are pre-computed and stored in `stored_exposure_scores`. They are never r
 
 ## Disclaimer
 
-DELTA Exposure Scores are for informational and analytical purposes only. They do not constitute investment advice, a recommendation to buy or sell any asset, or a prediction of future performance. Always do your own research.
+Synthetic Exposure Scores are for informational and analytical purposes only. They do not constitute investment advice, a recommendation to buy or sell any asset, or a prediction of future performance. Always do your own research.

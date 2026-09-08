@@ -6,6 +6,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { previewNodes } from "@/lib/fixtures/nvda-graph";
 import type { GraphNode } from "@/lib/types";
 import DemoDataBadge from "@/components/shared/DemoDataBadge";
+import { formatScore } from "@/lib/format";
 
 const CATEGORIES = ["All", "AI", "DeFi", "Exchange", "BTC Ecosystem"];
 
@@ -43,7 +44,7 @@ function NodeDetail({ node }: { node: GraphNode }) {
       {/* Big score */}
       <div className="mb-4 rounded-xl p-4" style={{ background: `${color}0A`, border: `1px solid ${color}25` }}>
         <p className="mb-1 font-mono text-xs uppercase tracking-widest text-muted">Exposure Score</p>
-        <p className="font-heading text-4xl font-bold" style={{ color }}>{node.score.toFixed(2)}</p>
+        <p className="font-heading text-4xl font-bold" style={{ color }}>{formatScore(node.score)}</p>
       </div>
 
       <div className="space-y-2 font-mono text-xs">
@@ -201,7 +202,7 @@ export default function ExposureGraphPreview() {
                     key={node.id}
                     role="button"
                     tabIndex={0}
-                    aria-label={`${node.name} — Exposure Score ${node.score.toFixed(2)}`}
+                    aria-label={`${node.name} — Exposure Score ${formatScore(node.score)}`}
                     onClick={() => setSelectedNode(node)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setSelectedNode(node); }}
                     onMouseEnter={() => setHoveredNode(node.isCenter ? "center" : node.id)}

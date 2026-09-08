@@ -1,9 +1,9 @@
-# DELTA — Synthetic Exposure Architecture
+# Synthetic Exposure — Architecture
 
 ## Repository structure
 
 ```
-delta/
+synthetic-exposure/
 ├── web/              Next.js 16 App Router frontend
 ├── api/              Python 3.12+ FastAPI backend
 ├── docs/             Architecture, methodology, API reference
@@ -69,7 +69,7 @@ All commands are idempotent. On provider failure, existing stored data is preser
 
 ## Wallet gating
 
-`$DELTA` token balance is read client-side by Reown AppKit / Wagmi using the connected wallet. No backend RPC call is made for balance reads. The backend has no session layer and does not verify holdings.
+`$SynthEx` token balance is currently read client-side by Reown AppKit / Wagmi using the connected wallet (superseded by server-side SIWE authentication and holder verification once that lands — see the target architecture in the project root's Claude instructions).
 
 Portfolio analysis (which would require backend verification) is not yet implemented.
 
