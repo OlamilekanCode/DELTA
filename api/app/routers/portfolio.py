@@ -9,6 +9,7 @@ from app.services.portfolio import (
     compute_portfolio_exposure,
     get_or_create_entitlement,
     refresh_wallet_positions,
+    shape_portfolio_response,
 )
 
 router = APIRouter(prefix="/portfolio")
@@ -19,11 +20,20 @@ async def refresh_portfolio(
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Explicit refresh of on-chain wallet positions. Safe to call with no
-    configured RPC/contracts — it simply refreshes nothing (see
-    services/portfolio_assets.py) rather than erroring."""
-    positions = await refresh_wallet_positions(db, wallet)
-    return {"positions_refreshed": len(positions)}
+    """Explicit refresh of on-chain wallet positions. Builds real RPC
+    providers from server-only config (never exposed to the frontend) when
+    none are injected. Returns `not_configured` — never a misleading
+    `positions_refreshed: 0` — when no RPC/contracts are set up yet."""
+    result = await refresh_wallet_positions(db, wallet)
+    return {
+        "status": result.status,
+        "chains_attempted": result.chains_attempted,
+        "contracts_attempted": result.contracts_attempted,
+        "positions_refreshed": result.positions_refreshed,
+        "skipped": result.skipped,
+        "failed": result.failed,
+        "message": result.message,
+    }
 
 
 @router.get("/exposure")
@@ -54,10 +64,11 @@ async def get_portfolio_exposure(
         }
 
     exposure = await compute_portfolio_exposure(db, wallet, stock_symbol=stock)
+    shaped = shape_portfolio_response(entitlement.tier, exposure)
     return {
         "tier": entitlement.tier,
         "cumulative_usd": cumulative_usd,
         "status": "active",
         "demo": get_settings().use_demo_data,
-        **exposure,
+        **shaped,
     }

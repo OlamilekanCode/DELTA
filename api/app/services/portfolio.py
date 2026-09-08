@@ -12,19 +12,20 @@ current balance, and access is restored automatically once the balance is
 sufficient again, with no new purchase required.
 """
 
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
 from app.models.portfolio import WalletEntitlement
 from app.models.quote import AssetQuote
 from app.models.wallet_position import CachedWalletPosition
-from app.services.blockchain import RpcProvider
+from app.services.blockchain import JsonRpcProvider, RpcProvider
 from app.services.portfolio_assets import NATIVE, contracts_for_chain
 
 TIER_THRESHOLDS = {
@@ -32,6 +33,13 @@ TIER_THRESHOLDS = {
     "detailed": 25_000,  # $250.00
     "premium": 100_000,  # $1,000.00
 }
+
+ETHEREUM_CHAIN_ID = 1
+BASE_CHAIN_ID = 8453
+
+# Features that exist for the "detailed" tier but are not yet built — surfaced
+# to "premium" wallets as explicitly coming_soon rather than silently absent.
+PREMIUM_COMING_SOON_FEATURES = ["advanced_graphs", "longer_portfolio_history", "alerts"]
 
 
 def get_tier(cumulative_usd_cents: int) -> str:
@@ -65,34 +73,92 @@ async def get_or_create_entitlement(db: AsyncSession, wallet_address: str) -> Wa
     return entitlement
 
 
+@dataclass
+class PortfolioRefreshResult:
+    """Structured outcome of a wallet-position refresh — always tells the
+    caller *why* nothing happened rather than letting a silent no-op look
+    like a successful zero-position refresh."""
+
+    status: str  # "ok" | "not_configured"
+    chains_attempted: int = 0
+    contracts_attempted: int = 0
+    positions_refreshed: int = 0
+    skipped: int = 0
+    failed: int = 0
+    positions: list[CachedWalletPosition] = field(default_factory=list)
+    message: str | None = None
+
+
+def build_rpc_by_chain(settings: Settings) -> dict[int, RpcProvider]:
+    """Real, server-only `JsonRpcProvider` instances from configured RPC URLs
+    — never invents a chain ID, RPC URL or contract address. A chain with no
+    URL configured simply has no provider entry, so its contracts are
+    skipped rather than queried against the wrong network."""
+    mapping: dict[int, RpcProvider] = {}
+    if settings.synthex_chain_id and settings.robinhood_rpc_url:
+        mapping[settings.synthex_chain_id] = JsonRpcProvider(settings.robinhood_rpc_url)
+    if settings.ethereum_rpc_url:
+        mapping[ETHEREUM_CHAIN_ID] = JsonRpcProvider(settings.ethereum_rpc_url)
+    if settings.base_rpc_url:
+        mapping[BASE_CHAIN_ID] = JsonRpcProvider(settings.base_rpc_url)
+    return mapping
+
+
 async def refresh_wallet_positions(
     db: AsyncSession, wallet_address: str, rpc_by_chain: dict[int, RpcProvider] | None = None
-) -> list[CachedWalletPosition]:
+) -> PortfolioRefreshResult:
     """Read on-chain balances for every configured portfolio asset contract
     and upsert `cached_wallet_positions`. Never called on ordinary portfolio
-    page requests — only from explicit/background refresh. A chain with no
-    RPC provider supplied, or no configured contracts, is silently skipped
-    (not an error) — this is how Ethereum/Base stay disabled until enabled.
+    page requests — only from explicit/background refresh.
+
+    `rpc_by_chain` is `None` in production: real providers are built from
+    server-only config (`ROBINHOOD_RPC_URL`, `ETHEREUM_RPC_URL`,
+    `BASE_RPC_URL`) via `build_rpc_by_chain`. Tests inject a dict of mock
+    providers directly — including an explicit `{}` to simulate a chain with
+    contracts configured but no RPC reachable for it.
+
+    A chain whose RPC reports back a different `chain_id` than expected is
+    treated as failed (never trusted) rather than silently using the wrong
+    network's balances. An RPC or DB failure for one contract/chain never
+    touches previously cached positions for others.
     """
     settings = get_settings()
     wallet_lower = wallet_address.lower()
-    rpc_by_chain = rpc_by_chain or {}
+
+    if rpc_by_chain is None:
+        rpc_by_chain = build_rpc_by_chain(settings)
 
     chain_ids = set(settings.parsed_portfolio_chain_ids)
     if settings.synthex_chain_id:
         chain_ids.add(settings.synthex_chain_id)
 
-    now = datetime.now(UTC)
-    updated: list[CachedWalletPosition] = []
+    contracts_by_chain = {cid: contracts for cid in chain_ids if (contracts := contracts_for_chain(cid))}
+    total_contracts = sum(len(c) for c in contracts_by_chain.values())
 
-    for chain_id in chain_ids:
-        contracts = contracts_for_chain(chain_id)
+    if total_contracts == 0 or not rpc_by_chain:
+        return PortfolioRefreshResult(
+            status="not_configured",
+            message="No portfolio contract catalogue or RPC provider is configured yet",
+        )
+
+    now = datetime.now(UTC)
+    result = PortfolioRefreshResult(status="ok", chains_attempted=len(contracts_by_chain))
+
+    for chain_id, contracts in contracts_by_chain.items():
+        result.contracts_attempted += len(contracts)
         rpc = rpc_by_chain.get(chain_id)
-        if not contracts or rpc is None:
+        if rpc is None:
+            result.skipped += len(contracts)
             continue
+
         try:
+            reported_chain_id = await rpc.get_chain_id()
+            if reported_chain_id != chain_id:
+                result.failed += len(contracts)
+                continue
             block_number = await rpc.get_block_number()
         except Exception:
+            result.failed += len(contracts)
             continue
 
         for contract in contracts:
@@ -103,6 +169,7 @@ async def refresh_wallet_positions(
                     else await rpc.get_erc20_balance(contract.contract_address, wallet_lower)
                 )
             except Exception:
+                result.failed += 1
                 continue
 
             asset_result = await db.execute(select(Asset).where(Asset.symbol == contract.symbol))
@@ -122,7 +189,7 @@ async def refresh_wallet_positions(
                 existing.asset_id = asset.id if asset else None
                 existing.block_number = block_number
                 existing.updated_at = now
-                updated.append(existing)
+                result.positions.append(existing)
             else:
                 row = CachedWalletPosition(
                     wallet_address=wallet_lower,
@@ -135,10 +202,11 @@ async def refresh_wallet_positions(
                     updated_at=now,
                 )
                 db.add(row)
-                updated.append(row)
+                result.positions.append(row)
+            result.positions_refreshed += 1
 
     await db.commit()
-    return updated
+    return result
 
 
 async def _stock_exposure_for_weights(
@@ -247,9 +315,64 @@ async def compute_portfolio_exposure(
             ranked.append({"stock": stock.symbol, "portfolio_exposure_score": round(score, 4), "assets": contributing})
     ranked.sort(key=lambda r: abs(r["portfolio_exposure_score"]), reverse=True)
 
+    category_totals: dict[str, Decimal] = {}
+    for asset, weight in weights:
+        category_totals[asset.category] = category_totals.get(asset.category, Decimal(0)) + weight
+    category_exposure = sorted(
+        ({"category": c, "weight": float(w)} for c, w in category_totals.items()),
+        key=lambda row: row["weight"],
+        reverse=True,
+    )
+
     return {
         "ranked": ranked,
         "assets": [{"symbol": asset.symbol, "weight": float(weight)} for asset, weight in weights],
+        "category_exposure": category_exposure,
         "excluded": excluded,
         "data_ts": data_ts.isoformat() if data_ts else None,
     }
+
+
+def shape_portfolio_response(tier: str, exposure: dict) -> dict:
+    """Trim the fully-computed exposure payload to what each tier is allowed
+    to see. Enforced server-side — the frontend must never be the only thing
+    hiding summary-tier detail.
+
+    - "summary": headline score and coverage count only — no individual
+      holdings, weights, excluded assets or per-stock contribution data.
+    - "detailed": the full payload as computed (weights, excluded, category
+      aggregation, ranked stock exposure).
+    - "premium": the full "detailed" payload plus a `coming_soon` list for
+      features that exist in the UI but aren't built yet.
+    """
+    if "error" in exposure:
+        return exposure
+
+    if tier == "summary":
+        return _summary_shape(exposure)
+
+    if tier == "premium":
+        return {**exposure, "coming_soon": PREMIUM_COMING_SOON_FEATURES}
+
+    return exposure
+
+
+def _summary_shape(exposure: dict) -> dict:
+    ranked = exposure.get("ranked")
+    if ranked is not None:
+        scores = [r["portfolio_exposure_score"] for r in ranked]
+        shaped = {
+            "portfolio_exposure_score": round(sum(scores) / len(scores), 4) if scores else None,
+            "stocks_covered": len(ranked),
+            "data_ts": exposure.get("data_ts"),
+        }
+    else:
+        score = exposure.get("portfolio_exposure_score")
+        shaped = {
+            "portfolio_exposure_score": score,
+            "stocks_covered": 1 if score is not None else 0,
+            "data_ts": exposure.get("data_ts"),
+        }
+    if exposure.get("note"):
+        shaped["note"] = exposure["note"]
+    return shaped

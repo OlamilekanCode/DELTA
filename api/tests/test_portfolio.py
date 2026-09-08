@@ -14,6 +14,7 @@ from app.services.portfolio import (
     compute_portfolio_exposure,
     get_tier,
     refresh_wallet_positions,
+    shape_portfolio_response,
 )
 from app.services.portfolio_assets import NATIVE, PortfolioAssetContract
 
@@ -54,6 +55,55 @@ def test_thresholds_match_dollar_amounts() -> None:
     assert TIER_THRESHOLDS["summary"] == 5_000  # $50.00
     assert TIER_THRESHOLDS["detailed"] == 25_000  # $250.00
     assert TIER_THRESHOLDS["premium"] == 100_000  # $1,000.00
+
+
+def test_shape_summary_strips_holdings_and_per_stock_data() -> None:
+    exposure = {
+        "ranked": [
+            {"stock": "TSLA", "portfolio_exposure_score": -0.9, "assets": [{"symbol": "BTC", "weight": 0.5, "score": -0.9}]},
+            {"stock": "NVDA", "portfolio_exposure_score": 0.3, "assets": [{"symbol": "BTC", "weight": 0.5, "score": 0.3}]},
+        ],
+        "assets": [{"symbol": "BTC", "weight": 1.0}],
+        "category_exposure": [{"category": "Layer 1", "weight": 1.0}],
+        "excluded": [{"symbol": "ETH", "reason": "missing_price"}],
+        "data_ts": "2026-01-01T00:00:00+00:00",
+    }
+    shaped = shape_portfolio_response("summary", exposure)
+    assert shaped["portfolio_exposure_score"] == pytest.approx(-0.3, rel=1e-3)
+    assert shaped["stocks_covered"] == 2
+    assert "assets" not in shaped
+    assert "excluded" not in shaped
+    assert "ranked" not in shaped
+    assert "category_exposure" not in shaped
+
+
+def test_shape_summary_single_stock_query_hides_contributions() -> None:
+    exposure = {
+        "stock": "NVDA",
+        "portfolio_exposure_score": 0.42,
+        "assets": [{"symbol": "BTC", "weight": 1.0, "score": 0.42}],
+        "excluded": [],
+        "data_ts": None,
+    }
+    shaped = shape_portfolio_response("summary", exposure)
+    assert shaped == {"portfolio_exposure_score": 0.42, "stocks_covered": 1, "data_ts": None}
+
+
+def test_shape_detailed_passes_through_unchanged() -> None:
+    exposure = {"ranked": [], "assets": [], "category_exposure": [], "excluded": [], "data_ts": None}
+    assert shape_portfolio_response("detailed", exposure) == exposure
+
+
+def test_shape_premium_adds_coming_soon_on_top_of_detailed() -> None:
+    exposure = {"ranked": [], "assets": [], "category_exposure": [], "excluded": [], "data_ts": None}
+    shaped = shape_portfolio_response("premium", exposure)
+    assert shaped["ranked"] == []
+    assert set(shaped["coming_soon"]) == {"advanced_graphs", "longer_portfolio_history", "alerts"}
+
+
+def test_shape_passes_through_error_regardless_of_tier() -> None:
+    exposure = {"error": "unknown_stock", "portfolio_exposure_score": None, "assets": []}
+    assert shape_portfolio_response("summary", exposure) == exposure
 
 
 WALLET = "0x" + "1" * 40
@@ -210,12 +260,18 @@ async def test_refresh_wallet_positions_reads_native_and_erc20(db: AsyncSession,
     monkeypatch.setattr(portfolio_module, "get_settings", lambda: settings)
 
     mock = MockRpcProvider(
+        chain_id=8453,
         block_number=42,
         native_balances={WALLET.lower(): 5 * 10**18},
         balances={("0xbtccontract", WALLET.lower()): 2 * 10**8},
     )
-    positions = await refresh_wallet_positions(db, WALLET, rpc_by_chain={8453: mock})
-    assert len(positions) == 2
+    result = await refresh_wallet_positions(db, WALLET, rpc_by_chain={8453: mock})
+    assert result.status == "ok"
+    assert result.chains_attempted == 1
+    assert result.contracts_attempted == 2
+    assert result.positions_refreshed == 2
+    assert result.skipped == 0
+    assert result.failed == 0
 
     rows = (await db.execute(select(CachedWalletPosition).where(CachedWalletPosition.wallet_address == WALLET.lower()))).scalars().all()
     by_contract = {r.contract_address: r for r in rows}
@@ -236,6 +292,211 @@ async def test_refresh_wallet_positions_skips_chains_without_rpc(db: AsyncSessio
     settings = Settings(portfolio_chain_ids="1", database_url="sqlite+aiosqlite:///./test.db")
     monkeypatch.setattr(portfolio_module, "get_settings", lambda: settings)
 
-    # No RPC provided for chain 1 — must skip silently, not raise.
-    positions = await refresh_wallet_positions(db, WALLET, rpc_by_chain={})
-    assert positions == []
+    # No RPC provided for chain 1 at all — nothing usable is configured.
+    result = await refresh_wallet_positions(db, WALLET, rpc_by_chain={})
+    assert result.status == "not_configured"
+    assert result.positions == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_wallet_positions_skips_one_chain_when_another_is_configured(db: AsyncSession, monkeypatch) -> None:
+    """Chain 1 has contracts but no RPC; chain 8453 has both — chain 1's
+    contracts must be counted as skipped, not silently dropped, while
+    chain 8453 still refreshes normally."""
+    import app.services.portfolio as portfolio_module
+
+    contracts_by_chain = {
+        1: [PortfolioAssetContract(chain_id=1, contract_address=NATIVE, decimals=18, symbol="ETH")],
+        8453: [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")],
+    }
+    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts_by_chain.get(chain_id, []))
+
+    from app.config import Settings
+    settings = Settings(portfolio_chain_ids="1,8453", database_url="sqlite+aiosqlite:///./test.db")
+    monkeypatch.setattr(portfolio_module, "get_settings", lambda: settings)
+
+    mock = MockRpcProvider(chain_id=8453, block_number=1, native_balances={WALLET.lower(): 1})
+    result = await refresh_wallet_positions(db, WALLET, rpc_by_chain={8453: mock})
+    assert result.status == "ok"
+    assert result.chains_attempted == 2
+    assert result.contracts_attempted == 2
+    assert result.positions_refreshed == 1
+    assert result.skipped == 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_wallet_positions_distrusts_wrong_chain_id(db: AsyncSession, monkeypatch) -> None:
+    """An RPC that reports back a chain ID different from the one it was
+    registered for must never have its balances trusted."""
+    import app.services.portfolio as portfolio_module
+
+    contracts = [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")]
+    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+
+    from app.config import Settings
+    settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")
+    monkeypatch.setattr(portfolio_module, "get_settings", lambda: settings)
+
+    # Misconfigured/wrong RPC: registered under chain 8453 but actually chain 1.
+    mock = MockRpcProvider(chain_id=1, block_number=1, native_balances={WALLET.lower(): 5 * 10**18})
+    result = await refresh_wallet_positions(db, WALLET, rpc_by_chain={8453: mock})
+    assert result.status == "ok"
+    assert result.failed == 1
+    assert result.positions_refreshed == 0
+    assert result.positions == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_wallet_positions_not_configured_with_empty_catalogue(db: AsyncSession) -> None:
+    """The real production contract catalogue is empty until addresses are
+    confirmed — refresh must say so explicitly rather than report a
+    misleading zero-position success."""
+    result = await refresh_wallet_positions(db, WALLET)
+    assert result.status == "not_configured"
+    assert result.positions_refreshed == 0
+
+
+@pytest.mark.asyncio
+async def test_refresh_wallet_positions_preserves_cache_on_rpc_failure(db: AsyncSession, monkeypatch) -> None:
+    import app.services.portfolio as portfolio_module
+
+    contracts = [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")]
+    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+
+    from app.config import Settings
+    settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")
+    monkeypatch.setattr(portfolio_module, "get_settings", lambda: settings)
+
+    eth = (await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one()
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=8453, contract_address=NATIVE,
+        asset_id=eth.id, quantity_raw=str(9 * 10**18), decimals=18,
+        block_number=10, updated_at=datetime.now(UTC),
+    ))
+    await db.commit()
+
+    mock = MockRpcProvider(chain_id=8453, raise_on_call=Exception("rpc down"))
+    result = await refresh_wallet_positions(db, WALLET, rpc_by_chain={8453: mock})
+    assert result.status == "ok"
+    assert result.failed == 1
+
+    row = (await db.execute(
+        select(CachedWalletPosition).where(CachedWalletPosition.wallet_address == WALLET.lower())
+    )).scalar_one()
+    assert row.quantity_raw == str(9 * 10**18)  # untouched by the failed refresh
+
+
+# ── GET /api/v1/portfolio/exposure — server-side tier enforcement ──────────
+# Proves a summary-tier caller cannot retrieve detailed fields by calling the
+# API directly, regardless of what the frontend would or wouldn't render.
+
+_TEST_CHAIN_ID = 8453
+_TOKEN_ADDRESS = "0x" + "9" * 40
+
+
+def _entitlement_settings():
+    from app.config import Settings
+
+    return Settings(
+        cors_origins="http://localhost:3000",
+        synthex_chain_id=_TEST_CHAIN_ID,
+        synthex_token_address=_TOKEN_ADDRESS,
+        database_url="sqlite+aiosqlite:///./test.db",
+    )
+
+
+async def _authenticated_holder(client, db: AsyncSession, monkeypatch, tier: str, cumulative_usd_cents: int) -> dict:
+    """Authenticate a fresh wallet, mark it a verified holder, and give it a
+    persisted entitlement at the given tier — mirroring how a real verified
+    purchase would set `wallet_entitlements`."""
+    from datetime import timedelta
+
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+
+    from app.models.auth import CachedWalletBalance
+    from app.models.portfolio import WalletEntitlement
+    from app.services import auth as auth_service
+    from app.services import holder as holder_service
+
+    settings = _entitlement_settings()
+    monkeypatch.setattr(auth_service, "get_settings", lambda: settings)
+    monkeypatch.setattr(holder_service, "get_settings", lambda: settings)
+
+    r = await client.post("/api/v1/auth/nonce")
+    nonce = r.json()["nonce"]
+    account = Account.create()
+    now = datetime.now(UTC)
+    message = (
+        "localhost:3000 wants you to sign in with your Ethereum account:\n"
+        f"{account.address}\n\nSign in to Synthetic Exposure.\n\n"
+        "URI: http://localhost:3000\nVersion: 1\n"
+        f"Chain ID: {_TEST_CHAIN_ID}\nNonce: {nonce}\n"
+        f"Issued At: {now.isoformat()}\nExpiration Time: {(now + timedelta(minutes=10)).isoformat()}\n"
+    )
+    signature = account.sign_message(encode_defunct(text=message)).signature.hex()
+    r = await client.post("/api/v1/auth/verify", json={"message": message, "signature": signature})
+    body = r.json()
+    wallet = body["wallet_address"]
+
+    db.add(CachedWalletBalance(
+        wallet_address=wallet, token_address=_TOKEN_ADDRESS.lower(),
+        balance_raw="1000000000000000000000", checked_at=datetime.now(UTC), is_holder=True,
+    ))
+    db.add(WalletEntitlement(
+        wallet_address=wallet, tier=tier, cumulative_usd_cents=cumulative_usd_cents, updated_at=datetime.now(UTC),
+    ))
+    await db.commit()
+
+    return {"Authorization": f"Bearer {body['session_token']}"}, wallet
+
+
+async def _seed_position_for(db: AsyncSession, wallet: str, symbol: str, quantity: float, decimals: int = 18) -> None:
+    asset = (await db.execute(select(Asset).where(Asset.symbol == symbol))).scalar_one()
+    db.add(CachedWalletPosition(
+        wallet_address=wallet.lower(), chain_id=8453, contract_address=f"0x{symbol.lower():0<40}",
+        asset_id=asset.id, quantity_raw=str(int(quantity * 10**decimals)), decimals=decimals,
+        block_number=1, updated_at=datetime.now(UTC),
+    ))
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_summary_tier_cannot_retrieve_detailed_fields_via_api(client, db: AsyncSession, monkeypatch) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    headers, wallet = await _authenticated_holder(client, db, monkeypatch, tier="summary", cumulative_usd_cents=5_000)
+    await _seed_position_for(db, wallet, "BTC", 1.0)
+
+    r = await client.get("/api/v1/portfolio/exposure", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["tier"] == "summary"
+    assert "portfolio_exposure_score" in body
+    for detailed_field in ("assets", "excluded", "ranked", "category_exposure"):
+        assert detailed_field not in body, f"summary tier leaked detailed field {detailed_field!r}"
+
+
+@pytest.mark.asyncio
+async def test_detailed_tier_receives_full_fields_via_api(client, db: AsyncSession, monkeypatch) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    headers, wallet = await _authenticated_holder(client, db, monkeypatch, tier="detailed", cumulative_usd_cents=25_000)
+    await _seed_position_for(db, wallet, "BTC", 1.0)
+
+    r = await client.get("/api/v1/portfolio/exposure", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["tier"] == "detailed"
+    assert "assets" in body
+    assert "excluded" in body
+    assert "category_exposure" in body
+
+
+@pytest.mark.asyncio
+async def test_locked_tier_returns_no_analysis_data(client, db: AsyncSession, monkeypatch) -> None:
+    headers, _wallet = await _authenticated_holder(client, db, monkeypatch, tier="locked", cumulative_usd_cents=0)
+    r = await client.get("/api/v1/portfolio/exposure", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["tier"] == "locked"
+    for field_name in ("assets", "excluded", "ranked", "portfolio_exposure_score"):
+        assert field_name not in body
