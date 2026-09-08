@@ -227,6 +227,30 @@ async def seed_fixture_data(db: AsyncSession) -> None:
     await db.commit()
 
 
+async def seed_fixture_intraday_data(db: AsyncSession) -> None:
+    """Seed 30-min intraday candles + intraday Exposure Scores for all fixture assets."""
+    from app.services.intraday import (
+        build_30min_candles,
+        ingest_intraday_candles,
+        recompute_intraday_scores_for_stock,
+    )
+
+    provider = FixtureProvider()
+    assets_result = await db.execute(select(Asset))
+    assets = list(assets_result.scalars().all())
+
+    for asset in assets:
+        observations = await provider.fetch_intraday(asset.symbol)
+        candles = build_30min_candles(observations)
+        await ingest_intraday_candles(db, asset.id, candles, provider="fixture", is_demo=True)
+    await db.commit()
+
+    stocks = [a for a in assets if a.asset_type == "stock"]
+    crypto_assets = [a for a in assets if a.asset_type == "crypto"]
+    for stock in stocks:
+        await recompute_intraday_scores_for_stock(db, stock, crypto_assets)
+
+
 async def main() -> None:
     settings = get_settings()
     if not settings.use_demo_data:

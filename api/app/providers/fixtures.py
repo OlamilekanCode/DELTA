@@ -1,6 +1,10 @@
 from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from app.providers.base import PriceRow, QuoteRow
+
+if TYPE_CHECKING:
+    from app.services.intraday import IntradayObservation
 
 _RAW_NVDA: list[float] = [
     403, 408, 412, 418, 425, 421, 430, 438, 445, 440, 452, 458, 462, 470, 465, 472, 480,
@@ -198,6 +202,35 @@ class FixtureProvider:
             )
             for i, close in enumerate(prices[-n:])
         ]
+
+    async def fetch_intraday(self, symbol: str) -> list["IntradayObservation"]:
+        """Synthesize a full window of 30-min sessions deterministically so demo
+        mode is immediately ready (collecting_data=False) instead of requiring
+        real-time accumulation."""
+        from app.services.intraday import MAX_SESSIONS, MIN_SAMPLE_COUNT, IntradayObservation
+        from app.services.market_calendar import recent_session_dates, session_open_close
+
+        prices = _SYMBOL_DATA.get(symbol.upper(), [])
+        if not prices:
+            return []
+        base_price = float(prices[-1])
+        seed_base = sum(ord(c) for c in symbol.upper())
+
+        observations: list[IntradayObservation] = []
+        for day_idx, session_date in enumerate(recent_session_dates(count=MAX_SESSIONS)):
+            session_open, session_close = session_open_close(session_date)
+            bucket_start = session_open
+            bucket_idx = 0
+            while bucket_start < session_close:
+                for sample_idx in range(MIN_SAMPLE_COUNT):
+                    sample_ts = bucket_start + timedelta(minutes=10 * sample_idx)
+                    noise = _noise(seed_base + day_idx, bucket_idx * MIN_SAMPLE_COUNT + sample_idx, 0.01)
+                    observations.append(
+                        IntradayObservation(ts=sample_ts, price=round(base_price * noise, 8))
+                    )
+                bucket_start += timedelta(minutes=30)
+                bucket_idx += 1
+        return observations
 
     async def fetch_quotes(self, symbols: list[str]) -> list[QuoteRow]:
         """Return deterministic fake current quotes for the given symbols."""

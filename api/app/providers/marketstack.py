@@ -1,9 +1,13 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.providers.base import PriceRow, ProviderError
+
+if TYPE_CHECKING:
+    from app.services.intraday import IntradayCandle
 
 
 def _valid_adj_close(raw: object) -> float | None:
@@ -117,3 +121,50 @@ class MarketstackProvider:
                 )
 
         return {sym: rows[-days:] for sym, rows in by_symbol.items()}
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception_type((ProviderError, httpx.TransportError)),
+        reraise=True,
+    )
+    async def fetch_intraday_candles(self, symbol: str, limit: int = 260) -> list["IntradayCandle"]:
+        """Marketstack's /intraday endpoint already returns official 30-min bars,
+        so each row becomes a candle directly (sample_count=1, quality "ok") rather
+        than going through client-side bucketing."""
+        from app.services.intraday import IntradayCandle
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f"{self.BASE}/intraday",
+                params={
+                    "access_key": self.api_key,
+                    "symbols": symbol.upper(),
+                    "interval": "30min",
+                    "limit": limit,
+                    "sort": "ASC",
+                },
+            )
+
+        if r.status_code == 429:
+            raise ProviderError(429, "Marketstack rate limited on intraday")
+
+        if r.status_code != 200:
+            raise ProviderError(r.status_code, f"Marketstack intraday error {r.status_code}")
+
+        candles: list[IntradayCandle] = []
+        for item in r.json().get("data", []):
+            raw_date = item.get("date", "")
+            o, h, low, c = item.get("open"), item.get("high"), item.get("low"), item.get("close")
+            if not raw_date or None in (o, h, low, c):
+                continue
+            if any(float(v) <= 0 for v in (o, h, low, c)):
+                continue
+            bucket_ts = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+            candles.append(IntradayCandle(
+                bucket_ts=bucket_ts,
+                open=float(o), high=float(h), low=float(low), close=float(c),
+                sample_count=1,
+                data_quality="ok",
+            ))
+        return candles

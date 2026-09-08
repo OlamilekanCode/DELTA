@@ -7,6 +7,7 @@ Usage:
     python -m app.ingestion.commands refresh-stock-eod
     python -m app.ingestion.commands refresh-crypto-history
     python -m app.ingestion.commands recompute-scores
+    python -m app.ingestion.commands refresh-intraday
     python -m app.ingestion.commands refresh-all
 """
 
@@ -202,6 +203,61 @@ async def cmd_refresh_crypto_history() -> None:
             log.exception("Failed to refresh %s — skipping, existing data preserved", symbol)
 
 
+async def cmd_refresh_intraday() -> None:
+    """Refresh 30-min intraday candles for all stocks + crypto, then recompute
+    intraday Exposure Scores for every stock. Skipped entirely while the US
+    market is closed (except demo mode, which is always ready)."""
+    from app.services.intraday import (
+        build_30min_candles,
+        ingest_intraday_candles,
+        recompute_intraday_scores_for_stock,
+    )
+    from app.services.market_calendar import get_market_status
+
+    settings = get_settings()
+    if settings.use_demo_data:
+        log.info("USE_DEMO_DATA=true — intraday fixtures are seeded at startup, nothing to refresh")
+        return
+
+    if not get_market_status().is_open:
+        log.info("US market closed — skipping intraday refresh")
+        return
+
+    _require_keys(settings)
+    ms = MarketstackProvider(settings.marketstack_api_key)
+    cg = CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
+
+    async with get_factory()() as db:
+        result = await db.execute(select(Asset))
+        all_assets = list(result.scalars().all())
+
+    for asset in all_assets:
+        try:
+            async with get_factory()() as asset_db:
+                if asset.asset_type == "stock":
+                    candles = await ms.fetch_intraday_candles(asset.symbol)
+                else:
+                    key = asset.coingecko_id or asset.symbol
+                    observations = await cg.fetch_intraday(key)
+                    candles = build_30min_candles(observations)
+                n = await ingest_intraday_candles(asset_db, asset.id, candles, provider=asset.asset_type, is_demo=False)
+                await asset_db.commit()
+                log.info("%s: %d intraday candles upserted", asset.symbol, n)
+        except Exception:
+            log.exception("Failed to refresh intraday for %s — existing data preserved", asset.symbol)
+
+    async with get_factory()() as db:
+        stocks_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
+        stocks = stocks_result.scalars().all()
+        crypto_result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
+        crypto_assets = crypto_result.scalars().all()
+        for stock in stocks:
+            try:
+                await recompute_intraday_scores_for_stock(db, stock, crypto_assets)
+            except Exception:
+                log.exception("Failed to recompute intraday scores for %s", stock.symbol)
+
+
 async def cmd_recompute_scores() -> None:
     """Precompute and store Exposure Scores for all stock × crypto pairs."""
     async with get_factory()() as db:
@@ -227,6 +283,7 @@ _COMMANDS = {
     "refresh-stock-eod": cmd_refresh_stock_eod,
     "refresh-crypto-history": cmd_refresh_crypto_history,
     "recompute-scores": cmd_recompute_scores,
+    "refresh-intraday": cmd_refresh_intraday,
     "refresh-all": cmd_refresh_all,
 }
 

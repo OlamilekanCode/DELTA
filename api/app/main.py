@@ -7,7 +7,16 @@ from fastapi.middleware.cors import CORSMiddleware
 import app.models  # noqa: F401 — register all ORM models with Base
 from app.config import get_settings
 from app.database import Base, get_engine, init_db
-from app.routers import assets, correlation, cron, exposures, graphs, health, market_status
+from app.routers import (
+    assets,
+    correlation,
+    cron,
+    exposures,
+    graphs,
+    health,
+    intraday,
+    market_status,
+)
 
 
 @asynccontextmanager
@@ -22,8 +31,9 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
         from sqlalchemy import func, select
 
         from app.database import get_factory
-        from app.ingestion.runner import seed_fixture_data
+        from app.ingestion.runner import seed_fixture_data, seed_fixture_intraday_data
         from app.models.exposure_score import StoredExposureScore
+        from app.models.intraday_exposure_score import IntradayExposureScore
         from app.services.scoring import recompute_all_scores
 
         async with get_factory()() as db:
@@ -35,6 +45,12 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
             )
             if (count_result.scalar() or 0) == 0:
                 await recompute_all_scores(db)
+
+            intraday_count_result = await db.execute(
+                select(func.count()).select_from(IntradayExposureScore)
+            )
+            if (intraday_count_result.scalar() or 0) == 0:
+                await seed_fixture_intraday_data(db)
 
     yield
 
@@ -65,6 +81,7 @@ def create_app() -> FastAPI:
     application.include_router(graphs.router, prefix="/api/v1")
     application.include_router(cron.router, prefix="/api/v1")
     application.include_router(market_status.router, prefix="/api/v1")
+    application.include_router(intraday.router, prefix="/api/v1")
 
     return application
 

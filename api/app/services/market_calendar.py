@@ -5,7 +5,7 @@ a hand-maintained holiday list.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import exchange_calendars as xcals
 import pandas as pd
@@ -60,4 +60,31 @@ def get_market_status(now: datetime | None = None) -> MarketStatus:
         next_open=next_open,
         current_bucket=current_bucket,
         status_reason=status_reason,
+    )
+
+
+def recent_session_dates(now: datetime | None = None, count: int = 20) -> list[date]:
+    """The most recent `count` completed-or-in-progress trading session dates, oldest first."""
+    ts = pd.Timestamp(now or datetime.now(UTC))
+    normalized = (ts.tz_convert(None) if ts.tzinfo else ts).normalize()
+    start = normalized - pd.Timedelta(days=count * 3)  # buffer for weekends/holidays
+    sessions = _calendar.sessions_in_range(start, normalized)
+    return [s.date() for s in sessions[-count:]]
+
+
+def upcoming_session_dates(now: datetime | None = None, count: int = 5) -> list[date]:
+    """The next `count` trading session dates strictly after `now`, ascending."""
+    ts = pd.Timestamp(now or datetime.now(UTC))
+    normalized = (ts.tz_convert(None) if ts.tzinfo else ts).normalize()
+    end = normalized + pd.Timedelta(days=count * 3 + 5)  # buffer for weekends/holidays
+    sessions = _calendar.sessions_in_range(normalized + pd.Timedelta(days=1), end)
+    return [s.date() for s in sessions[:count]]
+
+
+def session_open_close(session_date: date) -> tuple[datetime, datetime]:
+    """UTC (open, close) datetimes for a given NYSE trading session date."""
+    session = pd.Timestamp(session_date)
+    return (
+        _calendar.session_open(session).to_pydatetime(),
+        _calendar.session_close(session).to_pydatetime(),
     )
