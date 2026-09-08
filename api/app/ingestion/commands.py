@@ -9,6 +9,7 @@ Usage:
     python -m app.ingestion.commands recompute-scores
     python -m app.ingestion.commands refresh-intraday
     python -m app.ingestion.commands refresh-all
+    python -m app.ingestion.commands cleanup-old-data
 """
 
 import argparse
@@ -17,10 +18,10 @@ import logging
 import os
 import sys
 import tempfile
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.config import get_settings
 from app.database import get_engine, get_factory, init_db
@@ -258,6 +259,24 @@ async def cmd_refresh_intraday() -> None:
                 log.exception("Failed to recompute intraday scores for %s", stock.symbol)
 
 
+_INTRADAY_RETENTION_DAYS = 90
+
+
+async def cmd_cleanup_old_data() -> None:
+    """Idempotently delete 30-min intraday candles older than the retention
+    window. Daily (session-aligned) data is kept long-term and never deleted
+    here. Safe to run repeatedly — deleting already-deleted rows is a no-op."""
+    from app.models.intraday_price import IntradayPrice
+
+    cutoff = datetime.now(UTC) - timedelta(days=_INTRADAY_RETENTION_DAYS)
+    async with get_factory()() as db:
+        result = await db.execute(
+            delete(IntradayPrice).where(IntradayPrice.bucket_ts < cutoff)
+        )
+        await db.commit()
+        log.info("Deleted %d intraday_prices rows older than %d days", result.rowcount, _INTRADAY_RETENTION_DAYS)
+
+
 async def cmd_recompute_scores() -> None:
     """Precompute and store Exposure Scores for all stock × crypto pairs."""
     async with get_factory()() as db:
@@ -285,6 +304,7 @@ _COMMANDS = {
     "recompute-scores": cmd_recompute_scores,
     "refresh-intraday": cmd_refresh_intraday,
     "refresh-all": cmd_refresh_all,
+    "cleanup-old-data": cmd_cleanup_old_data,
 }
 
 

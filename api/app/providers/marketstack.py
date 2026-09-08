@@ -5,6 +5,7 @@ import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.providers.base import PriceRow, ProviderError
+from app.services.provider_usage import log_provider_call
 
 if TYPE_CHECKING:
     from app.services.intraday import IntradayCandle
@@ -34,6 +35,7 @@ class MarketstackProvider:
         reraise=True,
     )
     async def fetch_ohlcv(self, symbol: str, days: int) -> list[PriceRow]:
+        log_provider_call("marketstack", "eod", symbols=1, days=days)
         date_to = date.today()
         date_from = date_to - timedelta(days=days + 5)  # buffer for weekends/holidays
 
@@ -83,6 +85,7 @@ class MarketstackProvider:
         Note: Marketstack free plan counts each symbol in the batch as a separate request.
         Callers should be aware this may consume one request per symbol on the free tier.
         """
+        log_provider_call("marketstack", "eod_batch", symbols=len(symbols), days=days)
         date_to = date.today()
         date_from = date_to - timedelta(days=days + 5)
         symbols_str = ",".join(s.upper() for s in symbols)
@@ -134,6 +137,7 @@ class MarketstackProvider:
         than going through client-side bucketing."""
         from app.services.intraday import IntradayCandle
 
+        log_provider_call("marketstack", "intraday", symbols=1, limit=limit)
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
                 f"{self.BASE}/intraday",

@@ -7,6 +7,7 @@ import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.providers.base import PriceRow, ProviderError, QuoteRow
+from app.services.provider_usage import log_provider_call
 
 if TYPE_CHECKING:
     from app.services.intraday import IntradayObservation
@@ -39,6 +40,7 @@ class CoinGeckoProvider:
         reraise=True,
     )
     async def fetch_ohlcv(self, coingecko_id: str, days: int) -> list[PriceRow]:
+        log_provider_call("coingecko", "market_chart", coins=1, days=days)
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
                 f"{self.base}/coins/{coingecko_id}/market_chart",
@@ -73,6 +75,7 @@ class CoinGeckoProvider:
     )
     async def fetch_quotes_batch(self, coingecko_ids: list[str]) -> list[QuoteRow]:
         """Fetch current prices for up to 250 coins in one request."""
+        log_provider_call("coingecko", "markets_batch", coins=len(coingecko_ids))
         ids_str = ",".join(coingecko_ids[:_MAX_BATCH])
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
@@ -118,6 +121,8 @@ class CoinGeckoProvider:
         """CoinGecko's market_chart?days=1 returns ~5-minutely samples, which the
         caller buckets into 30-min candles via build_30min_candles()."""
         from app.services.intraday import IntradayObservation
+
+        log_provider_call("coingecko", "market_chart_intraday", coins=1)
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
