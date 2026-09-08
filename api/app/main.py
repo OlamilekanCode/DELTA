@@ -12,6 +12,7 @@ from app.routers import (
     auth,
     correlation,
     cron,
+    entitlements,
     exposures,
     graphs,
     health,
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     application.include_router(intraday.router, prefix="/api/v1")
     application.include_router(auth.router, prefix="/api/v1")
     application.include_router(portfolio.router, prefix="/api/v1")
+    application.include_router(entitlements.router, prefix="/api/v1")
 
     return application
 
