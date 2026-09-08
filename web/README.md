@@ -10,7 +10,7 @@ Next.js 16 App Router frontend for the Synthetic Exposure stock↔crypto correla
 - **Framer Motion** — page and component animations
 - **@xyflow/react** — interactive Exposure Graph (`/graph/[symbol]`)
 - **lightweight-charts v5** — price history charts (`/asset/[symbol]`)
-- **Reown AppKit + Wagmi + Viem** — wallet connection and `$SynthEx` balance gating
+- **Reown AppKit + Wagmi + Viem** — wallet connection, backed by server-side SIWE authentication (no client-only balance gating)
 
 ## Local setup
 
@@ -38,15 +38,16 @@ npx tsc --noEmit      # TypeScript type-check
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_API_BASE_URL` | Backend base URL, no trailing slash |
+| `NEXT_PUBLIC_API_BASE_URL` | Backend base URL for public data, no trailing slash |
 | `NEXT_PUBLIC_REOWN_PROJECT_ID` | Reown AppKit project ID (cloud.reown.com) |
-| `NEXT_PUBLIC_SYNTHEX_TOKEN_ADDRESS` | `$SynthEx` ERC-20 contract address |
-| `NEXT_PUBLIC_SYNTHEX_HOLDER_MIN_BALANCE` | Minimum balance for holder access, in raw token base units |
+| `NEXT_PUBLIC_SYNTHEX_CHAIN_ID` | Robinhood Chain ID for wallet prompts (display only — the backend enforces access) |
+| `NEXT_PUBLIC_SYNTHEX_RPC_URL` | Public RPC for wallet-facing chain-add prompts — separate from the private, server-only `ROBINHOOD_RPC_URL` |
+| `NEXT_PUBLIC_SYNTHEX_TOKEN_ADDRESS` | `$SynthEx` ERC-20 contract address (display only) |
 | `NEXT_PUBLIC_SYNTHEX_BUY_URL` | DEX link for buying `$SynthEx` |
 | `NEXT_PUBLIC_SITE_URL` | Canonical public URL used in wallet metadata |
-| `BACKEND_API_URL` | Server-only (not `NEXT_PUBLIC_`) — FastAPI origin used by Next.js route handlers |
+| `BACKEND_API_URL` | Server-only (not `NEXT_PUBLIC_`) — FastAPI origin used by Next.js route handlers and Server Components for authenticated requests |
 
-All `NEXT_PUBLIC_*` variables are embedded at build time and must be set before running `npm run build`.
+All `NEXT_PUBLIC_*` variables are embedded at build time and must be set before running `npm run build`. Holder access, tier and portfolio decisions are always enforced server-side — these public values are for display and wallet prompts only.
 
 ## Pages
 
@@ -63,10 +64,13 @@ All `NEXT_PUBLIC_*` variables are embedded at build time and must be set before 
 
 - `components/explore/AssetGrid.tsx` — client-side filtered asset list
 - `components/asset/AssetHistoryChart.tsx` — lightweight-charts v5, dynamically imported
-- `components/asset/StockExposureList.tsx` — animated score cards with signed-score bar visualisation
+- `components/asset/StockExposureList.tsx` — historical (90-day) Exposure Score cards
+- `components/asset/LiveExposureSection.tsx` — live (30-min) Exposure Score section, polls `/api/intraday/[symbol]`
 - `components/graph/ExposureGraphCanvas.tsx` — React Flow graph with radial layout and score-filter slider
 - `components/shared/FreshnessLabel.tsx` — demo (amber) vs live (green) data origin badge
-- `components/wallet/PortfolioGate.tsx` — wallet connection and `$SynthEx` balance gate
+- `components/wallet/WalletStateManager.tsx` — the 10-state wallet/session/tier state machine (context provider)
+- `components/wallet/ConnectWalletButton.tsx` — connect button, shows `$SynthEx` balance once authenticated
+- `components/portfolio/PortfolioExposure.tsx` — renders the correct UI for every wallet state
 
 ## SSR notes
 

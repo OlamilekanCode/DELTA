@@ -2,55 +2,58 @@
 
 **Base URL**: `/api/v1`
 
-All endpoints are versioned under `/api/v1`. Field names use `snake_case`. The `is_demo` or `demo` field in every response indicates whether fixture data was returned (`USE_DEMO_DATA=true`).
+All endpoints are versioned under `/api/v1`. Field names use `snake_case`. The `is_demo`/`demo` field in every response indicates whether fixture data was returned (`USE_DEMO_DATA=true`).
+
+Authenticated requests send `Authorization: Bearer <session_token>`. The token is issued by `POST /auth/verify` and never exposed to browser JavaScript — see the BFF pattern in `docs/architecture.md`.
+
+---
+
+## Access model
+
+Two catalogue tiers:
+
+- **Guest / non-holder**: 8 free stocks + 30 free crypto assets.
+- **Verified `$SynthEx` holder**: 20 stocks + 100 crypto assets.
+
+Every endpoint that serves asset rows filters by access level at the database-query level. Requesting a holder-only stock (`{symbol}` path parameter) returns:
+
+- `401` with `{"detail": "authentication_required"}` when there is no session at all.
+- `403` with `{"detail": "holder_required"}` when the session is authenticated but not a verified holder.
+
+List/search/exposure/graph/correlation/intraday endpoints instead silently restrict which rows are returned — a guest never sees holder-only symbols in a list, and never sees a holder-only crypto asset inside a free stock's exposure/graph/intraday results.
 
 ---
 
 ## Health
 
-### `GET /api/v1/health`
-
-Returns service status. Used as the Railway health-check endpoint.
+### `GET /health`
 
 ```json
-{ "status": "ok", "timestamp": "2026-09-06T12:00:00Z" }
+{ "status": "ok", "timestamp": "2026-09-08T12:00:00Z" }
 ```
 
 ---
 
 ## Assets
 
-### `GET /api/v1/assets`
+### `GET /assets`
 
-Returns all 38 assets (8 stocks + 30 crypto) with latest price data.
+Returns the caller's accessible assets (38 for a guest, 120 for a verified holder) with latest price data. Query: `type=stock|crypto`.
 
-Query params:
-- `type=stock|crypto` — filter by asset type
+### `GET /assets/search`
 
-### `GET /api/v1/assets/search`
+Search by symbol, name or category, filtered to the caller's access tier. Query: `q=string`, `type=stock|crypto`.
 
-Search assets by symbol, name, or category.
+### `GET /assets/{symbol}`
 
-Query params:
-- `q=string` — search query (matches symbol, name, category)
-- `type=stock|crypto` — optional type filter
+Single asset with latest price and quote data. `401`/`403` per the access model above for a holder-only symbol.
 
-### `GET /api/v1/assets/{symbol}`
+**Crypto** — price comes from `asset_quotes`. Includes `change_24h_pct`, `market_cap_usd`, `volume_24h_usd`, `quote_ts`, `quote_provider`.
+**Stock** — price comes from `daily_prices` (Marketstack EOD). Quote fields are `null`.
 
-Single asset with latest price and quote data.
+### `GET /assets/{symbol}/history`
 
-**Crypto assets** — current price comes from `asset_quotes` (populated by `refresh-crypto-quotes`). Includes `change_24h_pct`, `market_cap_usd`, `volume_24h_usd`, `quote_ts`, `quote_provider`. Falls back to `DailyPrice` if no quote row exists.
-
-**Stock assets** — price comes from `DailyPrice` (Marketstack EOD). Quote fields are `null`.
-
-### `GET /api/v1/assets/{symbol}/history`
-
-Daily price history for the given asset.
-
-Query params:
-- `days=7–365` (default: 90)
-
-Response includes `prices: [{date, close}]`, `is_demo`, `provider`.
+Price history. Query: `days=7–365` (default 90), or `range=4H|1D|1W|1M|3M|1Y` (4H/1D/1W/1M read stored 30-minute candles; 3M/1Y read stored daily prices). Returns `collecting_data: true` when a selected intraday range hasn't accumulated enough observations yet — never a partial/misleading result.
 
 ### Asset schema
 
@@ -60,59 +63,145 @@ interface AssetOut {
   name: string;
   category: string;
   asset_type: "stock" | "crypto";
+  access: "free" | "holder";
   coingecko_id: string | null;
   last_price: number | null;
-  last_price_date: string | null;   // ISO date
+  last_price_date: string | null;
   is_demo: boolean | null;
-  // Populated for crypto only:
-  change_24h_pct: number | null;
-  market_cap_usd: number | null;
-  volume_24h_usd: number | null;
-  quote_ts: string | null;          // ISO 8601 UTC timestamp of quote
-  quote_provider: string | null;   // "coingecko" | "fixture"
+  change_24h_pct: number | null;    // crypto only
+  market_cap_usd: number | null;    // crypto only
+  volume_24h_usd: number | null;    // crypto only
+  quote_ts: string | null;          // crypto only
+  quote_provider: string | null;    // crypto only
 }
 ```
 
 ---
 
-## Correlation
+## Exposures (historical, 90-day)
 
-### `GET /api/v1/correlation/{symbol}`
+### `GET /exposures/{symbol}`
 
-Pearson correlation scores computed on request from stored `DailyPrice` rows.
+Pre-computed, stored signed Exposure Scores (`[-1.00, +1.00]`) for a stock. Never computed inside the request — reads `stored_exposure_scores` only.
 
-Query params:
-- `days=60–90` (default: 90)
+```typescript
+interface ExposuresResult {
+  stock: { symbol: string; name: string };
+  scores: {
+    symbol: string; name: string; category: string;
+    score: number; raw_correlation: number; observations: number;
+    data_quality: string | null; data_ts: string | null;
+  }[];
+  computed_at: string | null;
+  stale: boolean;   // market-aware: compares against the last Tue/Fri recalculation deadline
+  demo: boolean;
+  model_version: string;
+  window_days: number;
+}
+```
 
-Response: `CorrelationResult` with `scores: [ExposureScoreOut]`, `demo`, `computed_at`.
+### `GET /correlation/{symbol}` — deprecated alias
+
+Kept for backward compatibility. Reads the same stored data as `/exposures` (plus normalized price series for charting) rather than recomputing anything on request.
 
 ---
 
-## Exposures
+## Live Exposure (intraday, 30-minute)
 
-### `GET /api/v1/exposures/{symbol}`
+### `GET /intraday/{symbol}`
 
-Pre-computed stored Exposure Scores for the given stock.
+Reads the latest stored 30-minute Exposure Scores only — never computes a score inside the request. While the market is open, scores refresh after each completed bucket; while closed, the last valid score is preserved and `freshness: "market_closed"` is returned instead of stale.
 
-On first request with no stored scores, scores are computed and written to `stored_exposure_scores`. Subsequent calls read from the table directly. Scores older than 25 hours are flagged `stale: true`.
-
-Response: `ExposuresResult` with `stock`, `scores`, `computed_at`, `stale`, `demo`.
+```typescript
+interface IntradayResult {
+  stock: { symbol: string; name: string };
+  status: "ready" | "collecting_data";
+  scores: { symbol: string; name: string; category: string; score: number; observations: number }[];
+  interval: "30m";
+  sessions_used: number;
+  demo: boolean;
+  current_count: number | null;
+  required_count: number | null;
+  estimated_ready: string | null;
+  data_ts: string | null;            // the real stored score timestamp, not the theoretical close
+  freshness: "fresh" | "stale" | "collecting_data" | "market_closed" | null;
+  market_is_open: boolean | null;
+  next_market_open: string | null;
+}
+```
 
 ---
 
 ## Graphs
 
-### `GET /api/v1/graphs/{symbol}`
+### `GET /graphs/{symbol}`
 
-Graph nodes and edges for the Exposure Graph. Returns up to 12 crypto nodes plus edges connecting them to the stock node.
+Graph nodes/edges for the Exposure Graph, filtered to the caller's access tier, up to 12 crypto nodes. Query: `min_score=0.0–1.0` (filters on `abs(score)`, so inverse relationships aren't dropped).
 
-Response: `GraphResult` with `nodes: [GraphNode]`, `edges: [GraphEdge]`, `demo`, `computed_at`.
+```typescript
+interface GraphResult {
+  stock: { symbol: string; name: string };
+  nodes: { id: string; symbol: string; name: string; category: string; score: number | null; is_center: boolean }[];
+  edges: { source: string; target: string; weight: number; score: number; direction: "positive" | "inverse" }[];
+  demo: boolean;
+  computed_at: string | null;
+}
+```
+
+---
+
+## Market status
+
+### `GET /market-status`
+
+```json
+{
+  "is_open": false,
+  "timezone": "America/New_York",
+  "last_close": "2026-09-08T20:00:00Z",
+  "next_open": "2026-09-09T13:30:00Z",
+  "current_bucket": null,
+  "status_reason": "market holiday or weekend"
+}
+```
+
+---
+
+## Auth (SIWE)
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `POST` | `/auth/nonce` | Issues a short-lived, single-use nonce. Rate-limited per IP. |
+| `POST` | `/auth/verify` | Body `{message, signature}`. Validates the full SIWE structure, verifies the signature, atomically consumes the nonce, creates a session. `503 chain_not_configured` if `SYNTHEX_CHAIN_ID` is unset. Rate-limited per IP. |
+| `GET` | `/auth/session` | `{wallet_address, authenticated}` for the caller's bearer token. |
+| `POST` | `/auth/logout` | Revokes the session tied to the bearer token. |
+
+---
+
+## Entitlements
+
+All require authentication (`401` without a session).
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/entitlements/status` | `{tier, cumulative_usd, is_holder, synthex_balance, synthex_balance_raw, synthex_balance_checked_at}`. Reads cache only. |
+| `POST` | `/entitlements/refresh` | Triggers an on-chain balance read and cache update. `{"status": "not_configured", ...}` until Robinhood Chain is fully configured. |
+| `POST` | `/entitlements/verify-purchase` | Body `{tx_hash}`. Verifies a `$SynthEx`/ETH purchase and updates the wallet's tier. `{"status": "not_configured", ...}` until router/pool/token/RPC config is supplied. |
+
+---
+
+## Portfolio
+
+All require authentication.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/portfolio/exposure` | Query `stock=SYMBOL` for a single stock, or omitted for a ranked summary across every stock with data. `status: "suspended"` when the verified tier is retained but the current `$SynthEx` balance has dropped below the holder threshold. |
+| `POST` | `/portfolio/refresh` | Refreshes on-chain wallet positions from the configured contract list. No-op (not an error) until contracts are populated. |
 
 ---
 
 ## Errors
-
-FastAPI returns standard HTTP error responses:
 
 ```json
 { "detail": "Asset 'FAKEX' not found" }
@@ -120,52 +209,25 @@ FastAPI returns standard HTTP error responses:
 
 | Code | Meaning |
 |------|---------|
+| `401` | No session (holder-only resource, or an entitlements/portfolio endpoint) |
+| `403` | Authenticated but not a verified holder |
 | `404` | Asset not found |
-| `422` | Invalid query parameter (Pydantic validation failure) |
-| `500` | Unexpected server error |
+| `422` | Invalid query parameter |
+| `429` | Rate limited (auth endpoints) |
+| `503` | Chain/backend not configured |
 
 ---
 
 ## Cron endpoints
 
-Protected endpoints called by the Cloudflare Cron scheduler. Every request must include `X-Cron-Secret: <CRON_SECRET>`.
+Protected endpoints called by the Cloudflare Worker. Every request must include `X-Cron-Secret: <CRON_SECRET>`. A genuine job failure (every provider call failed) returns a non-2xx status — never `200` with `ok: false`.
 
-### `POST /api/v1/cron/refresh-crypto-quotes`
-
-Refreshes current crypto prices for all 30 assets from CoinGecko `/coins/markets`. Runs every 5 minutes in production.
-
-With `USE_DEMO_DATA=true`, the command logs a skip message and returns immediately.
-
-```json
-{ "ok": true, "command": "refresh-crypto-quotes" }
-```
-
-If another instance of the same job is already running (PostgreSQL advisory lock held):
+| Method | Path | Schedule |
+|--------|------|----------|
+| `POST` | `/cron/refresh-crypto-quotes` | Every 5 minutes |
+| `POST` | `/cron/refresh-intraday` | 2 and 32 minutes past each hour |
+| `POST` | `/cron/refresh-history-and-scores` | Tuesday and Friday, 23:00 UTC |
 
 ```json
-{ "ok": false, "skipped": true, "message": "Job 'refresh-crypto-quotes' is already running on another instance" }
+{ "ok": true, "command": "refresh-crypto-quotes", "counts": { "requested": 30, "succeeded": 30, "skipped": 0, "failed": 0 } }
 ```
-
-Returns `401 Unauthorized` if `X-Cron-Secret` is missing, empty, or incorrect.
-
-### `POST /api/v1/cron/refresh-history-and-scores`
-
-Runs stock EOD refresh, then 90-day crypto OHLCV history refresh, then recomputes all Exposure Scores. Intended to run Tuesday and Friday.
-
-```json
-{ "ok": true, "command": "refresh-history-and-scores" }
-```
-
-Same `401` / advisory-lock skip behaviour as above.
-
----
-
-## Not implemented
-
-The following are not implemented and have no planned delivery date:
-
-- `/api/v1/auth/*` — SIWE wallet authentication
-- `/api/v1/access` — session-based access level
-- `/api/v1/portfolio/*` — portfolio exposure analysis
-
-Portfolio analysis requires backend session verification and is planned for a future release.
