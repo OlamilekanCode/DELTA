@@ -17,6 +17,7 @@ from app.routers import (
     health,
     intraday,
     market_status,
+    portfolio,
 )
 
 
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     application.include_router(market_status.router, prefix="/api/v1")
     application.include_router(intraday.router, prefix="/api/v1")
     application.include_router(auth.router, prefix="/api/v1")
+    application.include_router(portfolio.router, prefix="/api/v1")
 
     return application
 
