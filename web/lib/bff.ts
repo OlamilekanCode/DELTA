@@ -19,13 +19,15 @@ export async function getSessionToken(): Promise<string | null> {
 }
 
 /**
- * Proxy a GET request to the backend, forwarding the session token (if any)
- * as a Bearer header. `requireAuth: true` returns 401 locally without
- * touching the backend when there's no session.
+ * Proxy a request to the backend, forwarding the session token (if any) as a
+ * Bearer header. `requireAuth: true` returns 401 locally without touching
+ * the backend when there's no session. Every proxied response is `no-store`
+ * — this path only ever serves authenticated or entitlement-specific data,
+ * which must never be cached or shared between users.
  */
 export async function proxyToBackend(
   path: string,
-  options: { requireAuth?: boolean } = {}
+  options: { requireAuth?: boolean; method?: "GET" | "POST" } = {}
 ): Promise<Response> {
   if (!BACKEND_URL) {
     return Response.json({ error: "backend_not_configured" }, { status: 503 });
@@ -39,7 +41,11 @@ export async function proxyToBackend(
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${BACKEND_URL}${path}`, { headers, cache: "no-store" });
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    method: options.method ?? "GET",
+    headers,
+    cache: "no-store",
+  });
   const body = await res.json().catch(() => ({}));
   return Response.json(body, { status: res.status });
 }

@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { fetchAsset, fetchAssetHistory, fetchExposures } from "@/lib/api";
+import { ApiRequestError, fetchAssetAuthed, fetchAssetHistoryAuthed, fetchExposuresAuthed } from "@/lib/server-api";
 import type { ApiAsset, ApiAssetHistoryOut, ApiExposuresResult } from "@/lib/types";
 import FreshnessLabel from "@/components/shared/FreshnessLabel";
 import StockExposureList from "@/components/asset/StockExposureList";
+import LiveExposureSection from "@/components/asset/LiveExposureSection";
 import AssetHistorySection from "@/components/asset/AssetHistorySection";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -72,8 +73,29 @@ export default async function AssetPage({ params }: Props) {
   let exposures: ApiExposuresResult | null = null;
 
   try {
-    [asset, history] = await Promise.all([fetchAsset(sym), fetchAssetHistory(sym)]);
-  } catch {
+    [asset, history] = await Promise.all([fetchAssetAuthed(sym), fetchAssetHistoryAuthed(sym)]);
+  } catch (err) {
+    if (err instanceof ApiRequestError && (err.status === 401 || err.status === 403)) {
+      return (
+        <div className="mx-auto flex min-h-[60vh] max-w-2xl flex-col items-center justify-center px-4 text-center">
+          <p className="mb-2 font-mono text-xs uppercase tracking-widest text-violet">
+            {err.status === 401 ? "Sign in required" : "Holder access required"}
+          </p>
+          <h1 className="font-heading text-2xl font-bold text-text">{sym} is a holder-only asset</h1>
+          <p className="mt-3 max-w-md text-sm text-muted">
+            {err.status === 401
+              ? "Connect and sign in with a wallet to check whether you hold enough $SynthEx to unlock this asset."
+              : "This asset is part of the extended $SynthEx holder catalogue. Verify your holder balance to unlock it."}
+          </p>
+          <Link
+            href="/explore"
+            className="mt-6 inline-flex items-center gap-2 rounded-lg border border-violet/30 bg-violet/10 px-4 py-2.5 font-mono text-sm text-violet-light transition-colors hover:border-violet/50 hover:bg-violet/20"
+          >
+            Back to Explore
+          </Link>
+        </div>
+      );
+    }
     return notFound();
   }
 
@@ -81,7 +103,7 @@ export default async function AssetPage({ params }: Props) {
 
   if (asset.asset_type === "stock") {
     try {
-      exposures = await fetchExposures(sym);
+      exposures = await fetchExposuresAuthed(sym);
     } catch {
       // scores not yet available
     }
@@ -185,7 +207,16 @@ export default async function AssetPage({ params }: Props) {
         )}
       </div>
 
-      {exposures && <StockExposureList exposures={exposures} stockSymbol={sym} />}
+      {exposures && (
+        <>
+          <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 lg:px-8">
+            <p className="font-mono text-xs uppercase tracking-widest text-muted/60">Historical Exposure — 90-day</p>
+          </div>
+          <StockExposureList exposures={exposures} stockSymbol={sym} />
+        </>
+      )}
+
+      {asset.asset_type === "stock" && <LiveExposureSection symbol={sym} />}
     </div>
   );
 }
