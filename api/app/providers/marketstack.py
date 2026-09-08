@@ -172,3 +172,58 @@ class MarketstackProvider:
                 data_quality="ok",
             ))
         return candles
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception_type((ProviderError, httpx.TransportError)),
+        reraise=True,
+    )
+    async def fetch_intraday_candles_batch(
+        self, symbols: list[str], bars_per_symbol: int = 2
+    ) -> dict[str, list["IntradayCandle"]]:
+        """Fetch the latest 30-min bar(s) for every stock symbol in ONE Marketstack
+        call, using the same comma-separated `symbols` batching as fetch_eod_batch —
+        never call /intraday once per symbol when this is available on the plan."""
+        from app.services.intraday import IntradayCandle
+
+        log_provider_call("marketstack", "intraday_batch", symbols=len(symbols))
+        symbols_str = ",".join(s.upper() for s in symbols)
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(
+                f"{self.BASE}/intraday",
+                params={
+                    "access_key": self.api_key,
+                    "symbols": symbols_str,
+                    "interval": "30min",
+                    "limit": bars_per_symbol * len(symbols),
+                    "sort": "DESC",
+                },
+            )
+
+        if r.status_code == 429:
+            raise ProviderError(429, "Marketstack rate limited on intraday batch")
+
+        if r.status_code != 200:
+            raise ProviderError(r.status_code, f"Marketstack intraday batch error {r.status_code}")
+
+        by_symbol: dict[str, list[IntradayCandle]] = {s.upper(): [] for s in symbols}
+        for item in r.json().get("data", []):
+            sym = item.get("symbol", "").upper()
+            if sym not in by_symbol:
+                continue
+            raw_date = item.get("date", "")
+            o, h, low, c = item.get("open"), item.get("high"), item.get("low"), item.get("close")
+            if not raw_date or None in (o, h, low, c):
+                continue
+            if any(float(v) <= 0 for v in (o, h, low, c)):
+                continue
+            bucket_ts = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+            by_symbol[sym].append(IntradayCandle(
+                bucket_ts=bucket_ts,
+                open=float(o), high=float(h), low=float(low), close=float(c),
+                sample_count=1,
+                data_quality="ok",
+            ))
+        return {sym: sorted(rows, key=lambda cd: cd.bucket_ts) for sym, rows in by_symbol.items()}

@@ -21,3 +21,7 @@ class IntradayResult(BaseModel):
     current_count: int | None = None
     required_count: int | None = None
     estimated_ready: str | None = None
+    data_ts: str | None = None  # timestamp of the latest stored score, not the theoretical close
+    freshness: str | None = None  # "fresh" | "stale" | "collecting_data" | "market_closed"
+    market_is_open: bool | None = None
+    next_market_open: str | None = None

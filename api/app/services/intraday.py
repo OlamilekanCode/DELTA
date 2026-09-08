@@ -130,6 +130,14 @@ async def ingest_intraday_candles(
     return inserted
 
 
+async def stock_candle_count(db: AsyncSession, stock_id: int) -> int:
+    """Number of "ok"-quality completed candles available for a stock within
+    the scoring window — used by GET /intraday to report collection progress
+    without recomputing any score."""
+    data = await _load_intraday_open_close(db, stock_id)
+    return len(data)
+
+
 @dataclass
 class IntradayScoreResult:
     symbol: str
@@ -143,6 +151,8 @@ class IntradayScoreResult:
 async def _load_intraday_open_close(
     db: AsyncSession, asset_id: int, allowed_dates: set | None = None
 ) -> dict[datetime, tuple[float, float]]:
+    """Reduced-quality candles (insufficient samples to trust the bucket) are
+    excluded from scoring entirely — never averaged in alongside "ok" candles."""
     cutoff = datetime.now(UTC) - timedelta(days=MAX_SESSIONS * 3)  # generous buffer for weekends
     result = await db.execute(
         select(IntradayPrice.bucket_ts, IntradayPrice.open, IntradayPrice.close)
@@ -150,6 +160,7 @@ async def _load_intraday_open_close(
             IntradayPrice.asset_id == asset_id,
             IntradayPrice.interval == INTERVAL,
             IntradayPrice.bucket_ts >= cutoff,
+            IntradayPrice.data_quality == "ok",
         )
         .order_by(IntradayPrice.bucket_ts.asc())
     )

@@ -27,6 +27,7 @@ from app.config import get_settings
 from app.database import get_engine, get_factory, init_db
 from app.ingestion.runner import _upsert_quote, ingest_asset, seed_asset_catalogue
 from app.models.asset import Asset
+from app.models.crypto_observation import CryptoQuoteObservation
 from app.providers.coingecko import CoinGeckoProvider
 from app.providers.marketstack import MarketstackProvider
 from app.services.scoring import recompute_all_scores
@@ -94,12 +95,18 @@ async def cmd_backfill() -> None:
             log.exception("Failed to ingest %s — skipping, existing data preserved", symbol)
 
 
-async def cmd_refresh_crypto_quotes() -> None:
-    """Batch-refresh current prices for all 30 crypto assets from CoinGecko /coins/markets."""
+async def cmd_refresh_crypto_quotes() -> dict:
+    """Batch-refresh current prices for every crypto asset in ONE CoinGecko
+    /coins/markets call, and persist a timestamped observation per asset —
+    these observations are what the 30-minute intraday job later buckets
+    into candles, so no separate per-asset intraday provider call is needed.
+    """
     settings = get_settings()
+    counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0}
     if settings.use_demo_data:
         log.info("USE_DEMO_DATA=true — skipping live quote refresh")
-        return
+        counts["skipped"] = 1
+        return counts
 
     if not settings.coingecko_api_key:
         raise RuntimeError("COINGECKO_API_KEY is required when USE_DEMO_DATA=false")
@@ -112,15 +119,17 @@ async def cmd_refresh_crypto_quotes() -> None:
         )
         crypto_assets = result.scalars().all()
         cg_ids = [a.coingecko_id for a in crypto_assets if a.coingecko_id]
+        counts["requested"] = len(cg_ids)
         if not cg_ids:
             log.info("No crypto assets found")
-            return
+            return counts
 
         try:
             quotes = await cg.fetch_quotes_batch(cg_ids)
         except Exception:
             log.exception("Provider error — existing quote data preserved")
-            return
+            counts["failed"] = counts["requested"]
+            return counts
 
         log.info("Fetched %d quotes", len(quotes))
         symbol_to_asset = {a.symbol: a for a in crypto_assets}
@@ -141,24 +150,31 @@ async def cmd_refresh_crypto_quotes() -> None:
                 is_demo=False,
                 ts=now,
             )
+            db.add(CryptoQuoteObservation(asset_id=asset.id, ts=now, price_usd=q.price_usd, is_demo=False))
+            counts["succeeded"] += 1
 
+        counts["failed"] = max(0, counts["requested"] - counts["succeeded"])
         await db.commit()
-        log.info("Quotes persisted")
+        log.info("Quotes persisted: %d/%d", counts["succeeded"], counts["requested"])
+        return counts
 
 
-async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> None:
-    """Refresh EOD prices for all 8 stocks."""
+async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> dict:
+    """Refresh EOD prices for every stock."""
     settings = get_settings()
+    counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0}
     if settings.use_demo_data:
         log.info("USE_DEMO_DATA=true — skipping live stock refresh")
-        return
+        counts["skipped"] = 1
+        return counts
 
     if not settings.marketstack_api_key:
         raise RuntimeError("MARKETSTACK_API_KEY is required when USE_DEMO_DATA=false")
 
     if skip_weekends and date.today().weekday() >= 5:
         log.info("Weekend — skipping stock EOD refresh")
-        return
+        counts["skipped"] = 1
+        return counts
 
     ms = MarketstackProvider(settings.marketstack_api_key)
     async with get_factory()() as db:
@@ -167,22 +183,28 @@ async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> None:
         )
         stock_rows = result.all()
 
+    counts["requested"] = len(stock_rows)
     for asset_id, symbol in stock_rows:
         try:
             async with get_factory()() as asset_db:
                 asset = await asset_db.get(Asset, asset_id)
                 n = await ingest_asset(asset_db, asset, ms)
                 log.info("%s: %d rows upserted", symbol, n)
+                counts["succeeded"] += 1
         except Exception:
             log.exception("Failed to refresh %s — skipping, existing data preserved", symbol)
+            counts["failed"] += 1
+    return counts
 
 
-async def cmd_refresh_crypto_history() -> None:
-    """Refresh 90-day OHLCV history for all 30 crypto assets from CoinGecko."""
+async def cmd_refresh_crypto_history() -> dict:
+    """Refresh 90-day OHLCV history for every crypto asset from CoinGecko."""
     settings = get_settings()
+    counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0}
     if settings.use_demo_data:
         log.info("USE_DEMO_DATA=true — skipping live crypto history refresh")
-        return
+        counts["skipped"] = 1
+        return counts
 
     if not settings.coingecko_api_key:
         raise RuntimeError("COINGECKO_API_KEY is required when USE_DEMO_DATA=false")
@@ -194,21 +216,34 @@ async def cmd_refresh_crypto_history() -> None:
         )
         crypto_rows = result.all()
 
+    counts["requested"] = len(crypto_rows)
     for asset_id, symbol in crypto_rows:
         try:
             async with get_factory()() as asset_db:
                 asset = await asset_db.get(Asset, asset_id)
                 n = await ingest_asset(asset_db, asset, cg)
                 log.info("%s: %d rows upserted", symbol, n)
+                counts["succeeded"] += 1
         except Exception:
             log.exception("Failed to refresh %s — skipping, existing data preserved", symbol)
+            counts["failed"] += 1
+    return counts
 
 
-async def cmd_refresh_intraday() -> None:
-    """Refresh 30-min intraday candles for all stocks + crypto, then recompute
-    intraday Exposure Scores for every stock. Skipped entirely while the US
-    market is closed (except demo mode, which is always ready)."""
+async def cmd_refresh_intraday() -> dict:
+    """Build the 30-minute intraday candle set, then recompute intraday
+    Exposure Scores for every stock, atomically per stock.
+
+    Crypto candles are built entirely from already-stored 5-minute
+    `crypto_quote_observations` (see cmd_refresh_crypto_quotes) — this job
+    makes ZERO CoinGecko calls. Stock candles come from ONE batched
+    Marketstack /intraday call for every stock symbol, never one call per
+    symbol. Skipped while the US market is closed, except to finalize the
+    last bucket of the session that just closed (within a grace window).
+    """
     from app.services.intraday import (
+        BUCKET_MINUTES,
+        IntradayObservation,
         build_30min_candles,
         ingest_intraday_candles,
         recompute_intraday_scores_for_stock,
@@ -216,36 +251,88 @@ async def cmd_refresh_intraday() -> None:
     from app.services.market_calendar import get_market_status
 
     settings = get_settings()
+    counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0}
     if settings.use_demo_data:
         log.info("USE_DEMO_DATA=true — intraday fixtures are seeded at startup, nothing to refresh")
-        return
+        counts["skipped"] = 1
+        return counts
 
-    if not get_market_status().is_open:
+    now = datetime.now(UTC)
+    status = get_market_status(now)
+    closing_grace = timedelta(minutes=35)
+    is_final_closing_bucket = not status.is_open and (now - status.last_close) <= closing_grace
+    if not status.is_open and not is_final_closing_bucket:
         log.info("US market closed — skipping intraday refresh")
-        return
+        counts["skipped"] = 1
+        return counts
 
     _require_keys(settings)
     ms = MarketstackProvider(settings.marketstack_api_key)
-    cg = CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
 
     async with get_factory()() as db:
-        result = await db.execute(select(Asset))
-        all_assets = list(result.scalars().all())
+        stocks_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
+        stocks = list(stocks_result.scalars().all())
+        crypto_result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
+        crypto_assets = list(crypto_result.scalars().all())
 
-    for asset in all_assets:
-        try:
-            async with get_factory()() as asset_db:
-                if asset.asset_type == "stock":
-                    candles = await ms.fetch_intraday_candles(asset.symbol)
-                else:
-                    key = asset.coingecko_id or asset.symbol
-                    observations = await cg.fetch_intraday(key)
-                    candles = build_30min_candles(observations)
-                n = await ingest_intraday_candles(asset_db, asset.id, candles, provider=asset.asset_type, is_demo=False)
-                await asset_db.commit()
+    counts["requested"] = len(stocks) + len(crypto_assets)
+
+    # Stocks: one batched Marketstack call for every symbol.
+    try:
+        candles_by_symbol = await ms.fetch_intraday_candles_batch([s.symbol for s in stocks])
+    except Exception:
+        log.exception("Marketstack batch intraday call failed — existing data preserved")
+        candles_by_symbol = {}
+        counts["failed"] += len(stocks)
+
+    if candles_by_symbol:
+        async with get_factory()() as db:
+            for stock in stocks:
+                candles = [
+                    c for c in candles_by_symbol.get(stock.symbol, [])
+                    if c.bucket_ts + timedelta(minutes=BUCKET_MINUTES) <= now
+                ]
+                if not candles:
+                    counts["skipped"] += 1
+                    continue
+                n = await ingest_intraday_candles(db, stock.id, candles, provider="marketstack", is_demo=False)
+                counts["succeeded"] += 1
+                log.info("%s: %d intraday candles upserted", stock.symbol, n)
+            await db.commit()
+
+    # Crypto: build candles purely from stored 5-minute observations — no provider calls.
+    lookback = now - timedelta(hours=2)
+    async with get_factory()() as db:
+        for asset in crypto_assets:
+            try:
+                obs_result = await db.execute(
+                    select(CryptoQuoteObservation.ts, CryptoQuoteObservation.price_usd).where(
+                        CryptoQuoteObservation.asset_id == asset.id,
+                        CryptoQuoteObservation.ts >= lookback,
+                    )
+                )
+                observations = [
+                    IntradayObservation(
+                        ts=r.ts if r.ts.tzinfo is not None else r.ts.replace(tzinfo=UTC),
+                        price=r.price_usd,
+                    )
+                    for r in obs_result.all()
+                ]
+                all_candles = build_30min_candles(observations)
+                # Never persist the current/in-progress bucket.
+                completed = [
+                    c for c in all_candles if c.bucket_ts + timedelta(minutes=BUCKET_MINUTES) <= now
+                ]
+                if not completed:
+                    counts["skipped"] += 1
+                    continue
+                n = await ingest_intraday_candles(db, asset.id, completed, provider="coingecko", is_demo=False)
+                counts["succeeded"] += 1
                 log.info("%s: %d intraday candles upserted", asset.symbol, n)
-        except Exception:
-            log.exception("Failed to refresh intraday for %s — existing data preserved", asset.symbol)
+            except Exception:
+                log.exception("Failed to build intraday candles for %s — existing data preserved", asset.symbol)
+                counts["failed"] += 1
+        await db.commit()
 
     async with get_factory()() as db:
         stocks_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
@@ -258,42 +345,73 @@ async def cmd_refresh_intraday() -> None:
             except Exception:
                 log.exception("Failed to recompute intraday scores for %s", stock.symbol)
 
+    return counts
+
 
 _INTRADAY_RETENTION_DAYS = 90
+_CRYPTO_OBSERVATION_RETENTION_DAYS = 7
 
 
-async def cmd_cleanup_old_data() -> None:
-    """Idempotently delete 30-min intraday candles older than the retention
-    window. Daily (session-aligned) data is kept long-term and never deleted
-    here. Safe to run repeatedly — deleting already-deleted rows is a no-op."""
+async def cmd_cleanup_old_data() -> dict:
+    """Idempotently delete raw 5-min crypto observations (7-day retention),
+    30-min intraday candles (90-day retention), and expired SIWE
+    nonces/sessions. Daily (session-aligned) data is kept long-term and never
+    deleted here. Safe to run repeatedly — deleting already-deleted rows is a
+    no-op. Folded into the Tuesday/Friday historical maintenance job (see
+    cron.py) so no fourth Cloudflare schedule is required."""
     from app.models.intraday_price import IntradayPrice
+    from app.services.auth import cleanup_expired_auth_rows
 
-    cutoff = datetime.now(UTC) - timedelta(days=_INTRADAY_RETENTION_DAYS)
+    intraday_cutoff = datetime.now(UTC) - timedelta(days=_INTRADAY_RETENTION_DAYS)
+    observation_cutoff = datetime.now(UTC) - timedelta(days=_CRYPTO_OBSERVATION_RETENTION_DAYS)
     async with get_factory()() as db:
-        result = await db.execute(
-            delete(IntradayPrice).where(IntradayPrice.bucket_ts < cutoff)
+        intraday_result = await db.execute(
+            delete(IntradayPrice).where(IntradayPrice.bucket_ts < intraday_cutoff)
+        )
+        observation_result = await db.execute(
+            delete(CryptoQuoteObservation).where(CryptoQuoteObservation.ts < observation_cutoff)
         )
         await db.commit()
-        log.info("Deleted %d intraday_prices rows older than %d days", result.rowcount, _INTRADAY_RETENTION_DAYS)
+        auth_counts = await cleanup_expired_auth_rows(db)
+        log.info(
+            "Deleted %d intraday_prices rows (>%dd), %d crypto_quote_observations rows (>%dd), "
+            "%d expired nonces, %d expired sessions",
+            intraday_result.rowcount, _INTRADAY_RETENTION_DAYS,
+            observation_result.rowcount, _CRYPTO_OBSERVATION_RETENTION_DAYS,
+            auth_counts["nonces_deleted"], auth_counts["sessions_deleted"],
+        )
+        return {
+            "intraday_prices_deleted": intraday_result.rowcount,
+            "crypto_quote_observations_deleted": observation_result.rowcount,
+            **auth_counts,
+        }
 
 
-async def cmd_recompute_scores() -> None:
+async def cmd_recompute_scores() -> int:
     """Precompute and store Exposure Scores for all stock × crypto pairs."""
     async with get_factory()() as db:
         n = await recompute_all_scores(db)
         log.info("Stored %d exposure scores", n)
+        return n
 
 
-async def cmd_refresh_all() -> None:
-    """Refresh stock EOD history, crypto OHLCV history, then recompute scores.
-
-    Runs all three operations in sequence.  Use this for the scheduled
-    Tuesday/Friday data refresh.  The Cloudflare Cron schedule controls
-    which days this runs — no weekday check is applied here.
+async def cmd_refresh_all() -> dict:
+    """Refresh stock EOD history, crypto OHLCV history, recompute scores, and
+    run retention cleanup — the full Tuesday/Friday historical maintenance
+    job. Cleanup is folded in here so no fourth Cloudflare schedule is
+    needed. The Cloudflare Cron schedule controls which days this runs — no
+    weekday check is applied here.
     """
-    await cmd_refresh_stock_eod(skip_weekends=False)
-    await cmd_refresh_crypto_history()
-    await cmd_recompute_scores()
+    stock_counts = await cmd_refresh_stock_eod(skip_weekends=False)
+    crypto_counts = await cmd_refresh_crypto_history()
+    scores_written = await cmd_recompute_scores()
+    cleanup_counts = await cmd_cleanup_old_data()
+    return {
+        "stock_eod": stock_counts,
+        "crypto_history": crypto_counts,
+        "scores_written": scores_written,
+        "cleanup": cleanup_counts,
+    }
 
 
 _COMMANDS = {

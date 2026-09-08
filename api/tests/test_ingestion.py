@@ -24,6 +24,7 @@ from app.providers.coingecko import CoinGeckoProvider
 from app.providers.fixtures import FixtureProvider
 from app.providers.marketstack import MarketstackProvider
 from app.services.correlation import MIN_OBSERVATIONS
+from app.services.scoring import recompute_all_scores
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -306,6 +307,9 @@ async def test_real_mode_ingestion_then_correlation(client: AsyncClient, db, htt
 
     await ingest_asset(db, nvda, MarketstackProvider("ms-key"))
     await ingest_asset(db, btc, CoinGeckoProvider("cg-key"))
+    # /correlation now reads stored scores (never computes on request) — recompute
+    # after ingestion, matching what the scheduled historical job does in production.
+    await recompute_all_scores(db)
 
     assets_resp = await client.get("/api/v1/assets")
     assert assets_resp.status_code == 200
