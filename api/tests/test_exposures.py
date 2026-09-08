@@ -112,7 +112,7 @@ async def test_assets_search_by_name(client: AsyncClient) -> None:
 async def test_assets_search_empty_returns_all(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/assets/search")
     assert resp.status_code == 200
-    assert len(resp.json()["assets"]) == 38  # 8 stocks + 30 crypto
+    assert len(resp.json()["assets"]) == 120  # 20 stocks + 100 crypto (free + holder tiers)
 
 
 @pytest.mark.asyncio

@@ -92,6 +92,118 @@ _RAW_AR = _derived(_RAW_BTC, 25.0, seed=38, noise_amp=0.04)
 _RAW_DOGE = _derived(_RAW_BTC, 0.115, seed=23, noise_amp=0.07)
 _RAW_PEPE = _derived(_RAW_BTC, 0.0000125, seed=41, noise_amp=0.09)
 
+# Holder-tier stocks
+_RAW_AMZN = _derived(_RAW_NVDA, 220.0, seed=50, noise_amp=0.02)
+_RAW_GOOGL = _derived(_RAW_NVDA, 195.0, seed=51, noise_amp=0.02)
+_RAW_AAPL = _derived(_RAW_NVDA, 235.0, seed=52, noise_amp=0.015)
+_RAW_INTC = _derived(_RAW_NVDA, 32.0, seed=53, noise_amp=0.035)
+_RAW_QCOM = _derived(_RAW_NVDA, 165.0, seed=54, noise_amp=0.025)
+_RAW_MU = _derived(_RAW_NVDA, 115.0, seed=55, noise_amp=0.035)
+_RAW_SMCI = _derived(_RAW_NVDA, 45.0, seed=56, noise_amp=0.06)
+_RAW_HOOD = _derived(_RAW_BTC, 38.0, seed=57, noise_amp=0.05)
+_RAW_RIOT = _derived(_RAW_BTC, 12.0, seed=58, noise_amp=0.07)
+_RAW_MARA = _derived(_RAW_BTC, 18.0, seed=59, noise_amp=0.07)
+_RAW_CLSK = _derived(_RAW_BTC, 14.0, seed=60, noise_amp=0.075)
+_RAW_WULF = _derived(_RAW_BTC, 6.0, seed=61, noise_amp=0.08)
+
+# Holder-tier crypto — Layer 1 (additional)
+_RAW_TON = _derived(_RAW_BTC, 5.5, seed=62)
+_RAW_ATOM = _derived(_RAW_ETH, 7.0, seed=63)
+_RAW_ALGO = _derived(_RAW_ETH, 0.18, seed=64)
+_RAW_XLM = _derived(_RAW_BTC, 0.13, seed=65)
+_RAW_XTZ = _derived(_RAW_ETH, 0.9, seed=66)
+_RAW_EOS = _derived(_RAW_BTC, 0.7, seed=67)
+_RAW_FLOW = _derived(_RAW_ETH, 0.6, seed=68)
+_RAW_KAS = _derived(_RAW_BTC, 0.14, seed=69)
+_RAW_SEI = _derived(_RAW_ETH, 0.35, seed=70)
+_RAW_TIA = _derived(_RAW_BTC, 5.0, seed=71)
+_RAW_EGLD = _derived(_RAW_ETH, 28.0, seed=72)
+_RAW_KAVA = _derived(_RAW_ETH, 0.45, seed=73)
+
+# Holder-tier crypto — Layer 2 / Scaling
+_RAW_STRK = _derived(_RAW_ETH, 0.5, seed=74)
+_RAW_ZK = _derived(_RAW_ETH, 0.1, seed=75)
+_RAW_MNT = _derived(_RAW_ETH, 0.9, seed=76)
+_RAW_METIS = _derived(_RAW_ETH, 35.0, seed=77)
+_RAW_MANTA = _derived(_RAW_ETH, 0.4, seed=78)
+_RAW_BOBA = _derived(_RAW_ETH, 0.15, seed=79)
+
+# Holder-tier crypto — Interoperability
+_RAW_AXL = _derived(_RAW_ETH, 0.7, seed=80)
+_RAW_ZRO = _derived(_RAW_ETH, 3.5, seed=81)
+_RAW_W = _derived(_RAW_ETH, 0.25, seed=82)
+_RAW_QNT = _derived(_RAW_ETH, 110.0, seed=83)
+_RAW_REN = _derived(_RAW_ETH, 0.05, seed=84)
+_RAW_SYN = _derived(_RAW_ETH, 0.3, seed=85)
+
+# Holder-tier crypto — DeFi (additional)
+_RAW_MKR = _derived(_RAW_ETH, 1500.0, seed=86, noise_amp=0.03)
+_RAW_CRV = _derived(_RAW_ETH, 0.6, seed=87)
+_RAW_LDO = _derived(_RAW_ETH, 1.1, seed=88)
+_RAW_SNX = _derived(_RAW_ETH, 2.0, seed=89)
+_RAW_COMP = _derived(_RAW_ETH, 55.0, seed=90)
+_RAW_SUSHI = _derived(_RAW_ETH, 0.9, seed=91)
+_RAW_CAKE = _derived(_RAW_ETH, 2.2, seed=92)
+_RAW_1INCH = _derived(_RAW_ETH, 0.3, seed=93)
+_RAW_DYDX = _derived(_RAW_ETH, 1.2, seed=94)
+_RAW_PENDLE = _derived(_RAW_ETH, 4.5, seed=95)
+
+# Holder-tier crypto — GameFi
+_RAW_AXS = _derived(_RAW_ETH, 5.5, seed=96, noise_amp=0.06)
+_RAW_SAND = _derived(_RAW_ETH, 0.35, seed=97)
+_RAW_MANA = _derived(_RAW_ETH, 0.35, seed=98)
+_RAW_GALA = _derived(_RAW_ETH, 0.03, seed=99)
+_RAW_IMX = _derived(_RAW_ETH, 1.3, seed=100)
+_RAW_ENJ = _derived(_RAW_ETH, 0.2, seed=101)
+_RAW_ILV = _derived(_RAW_ETH, 45.0, seed=102, noise_amp=0.06)
+_RAW_BEAM = _derived(_RAW_ETH, 0.015, seed=103)
+
+# Holder-tier crypto — RWA
+_RAW_ONDO = _derived(_RAW_ETH, 1.1, seed=104)
+_RAW_POLYX = _derived(_RAW_ETH, 0.25, seed=105)
+_RAW_CFG = _derived(_RAW_ETH, 0.4, seed=106)
+_RAW_RSR = _derived(_RAW_BTC, 0.008, seed=107)
+_RAW_TRU = _derived(_RAW_ETH, 0.1, seed=108)
+_RAW_OM = _derived(_RAW_ETH, 0.8, seed=109)
+
+# Holder-tier crypto — Oracle/Data (additional)
+_RAW_PYTH = _derived(_RAW_ETH, 0.3, seed=110)
+_RAW_BAND = _derived(_RAW_ETH, 1.3, seed=111)
+_RAW_API3 = _derived(_RAW_ETH, 1.8, seed=112)
+
+# Holder-tier crypto — AI/Compute (additional)
+_RAW_WLD = _derived(_RAW_BTC, 1.8, seed=113, noise_amp=0.05)
+_RAW_OCEAN = _derived(_RAW_ETH, 0.5, seed=114)
+_RAW_NMR = _derived(_RAW_ETH, 18.0, seed=115)
+_RAW_ARKM = _derived(_RAW_ETH, 1.5, seed=116)
+_RAW_IO = _derived(_RAW_BTC, 2.5, seed=117, noise_amp=0.05)
+
+# Holder-tier crypto — Storage (additional)
+_RAW_STORJ = _derived(_RAW_ETH, 0.4, seed=118)
+
+# Holder-tier crypto — Privacy
+_RAW_ZEC = _derived(_RAW_BTC, 45.0, seed=119)
+_RAW_XMR = _derived(_RAW_BTC, 160.0, seed=120)
+_RAW_SCRT = _derived(_RAW_ETH, 0.25, seed=121)
+
+# Holder-tier crypto — Memecoin (additional)
+_RAW_SHIB = _derived(_RAW_BTC, 0.000018, seed=122, noise_amp=0.08)
+_RAW_FLOKI = _derived(_RAW_BTC, 0.00015, seed=123, noise_amp=0.08)
+_RAW_BONK = _derived(_RAW_BTC, 0.000022, seed=124, noise_amp=0.09)
+_RAW_WIF = _derived(_RAW_BTC, 1.8, seed=125, noise_amp=0.08)
+
+# Holder-tier crypto — Exchange tokens
+_RAW_CRO = _derived(_RAW_BTC, 0.12, seed=126)
+_RAW_LEO = _derived(_RAW_BTC, 5.8, seed=127, noise_amp=0.015)
+
+# Holder-tier crypto — Legacy Layer 1
+_RAW_LTC = _derived(_RAW_BTC, 95.0, seed=128)
+_RAW_BCH = _derived(_RAW_BTC, 380.0, seed=129)
+
+# Holder-tier crypto — Liquid staking
+_RAW_RPL = _derived(_RAW_ETH, 15.0, seed=130)
+_RAW_ETHFI = _derived(_RAW_ETH, 1.6, seed=131)
+
 _SYMBOL_DATA: dict[str, list[float]] = {
     "NVDA": _RAW_NVDA,
     "TSLA": _RAW_TSLA,
@@ -131,6 +243,88 @@ _SYMBOL_DATA: dict[str, list[float]] = {
     "AR": _RAW_AR,
     "DOGE": _RAW_DOGE,
     "PEPE": _RAW_PEPE,
+    "AMZN": _RAW_AMZN,
+    "GOOGL": _RAW_GOOGL,
+    "AAPL": _RAW_AAPL,
+    "INTC": _RAW_INTC,
+    "QCOM": _RAW_QCOM,
+    "MU": _RAW_MU,
+    "SMCI": _RAW_SMCI,
+    "HOOD": _RAW_HOOD,
+    "RIOT": _RAW_RIOT,
+    "MARA": _RAW_MARA,
+    "CLSK": _RAW_CLSK,
+    "WULF": _RAW_WULF,
+    "TON": _RAW_TON,
+    "ATOM": _RAW_ATOM,
+    "ALGO": _RAW_ALGO,
+    "XLM": _RAW_XLM,
+    "XTZ": _RAW_XTZ,
+    "EOS": _RAW_EOS,
+    "FLOW": _RAW_FLOW,
+    "KAS": _RAW_KAS,
+    "SEI": _RAW_SEI,
+    "TIA": _RAW_TIA,
+    "EGLD": _RAW_EGLD,
+    "KAVA": _RAW_KAVA,
+    "STRK": _RAW_STRK,
+    "ZK": _RAW_ZK,
+    "MNT": _RAW_MNT,
+    "METIS": _RAW_METIS,
+    "MANTA": _RAW_MANTA,
+    "BOBA": _RAW_BOBA,
+    "AXL": _RAW_AXL,
+    "ZRO": _RAW_ZRO,
+    "W": _RAW_W,
+    "QNT": _RAW_QNT,
+    "REN": _RAW_REN,
+    "SYN": _RAW_SYN,
+    "MKR": _RAW_MKR,
+    "CRV": _RAW_CRV,
+    "LDO": _RAW_LDO,
+    "SNX": _RAW_SNX,
+    "COMP": _RAW_COMP,
+    "SUSHI": _RAW_SUSHI,
+    "CAKE": _RAW_CAKE,
+    "1INCH": _RAW_1INCH,
+    "DYDX": _RAW_DYDX,
+    "PENDLE": _RAW_PENDLE,
+    "AXS": _RAW_AXS,
+    "SAND": _RAW_SAND,
+    "MANA": _RAW_MANA,
+    "GALA": _RAW_GALA,
+    "IMX": _RAW_IMX,
+    "ENJ": _RAW_ENJ,
+    "ILV": _RAW_ILV,
+    "BEAM": _RAW_BEAM,
+    "ONDO": _RAW_ONDO,
+    "POLYX": _RAW_POLYX,
+    "CFG": _RAW_CFG,
+    "RSR": _RAW_RSR,
+    "TRU": _RAW_TRU,
+    "OM": _RAW_OM,
+    "PYTH": _RAW_PYTH,
+    "BAND": _RAW_BAND,
+    "API3": _RAW_API3,
+    "WLD": _RAW_WLD,
+    "OCEAN": _RAW_OCEAN,
+    "NMR": _RAW_NMR,
+    "ARKM": _RAW_ARKM,
+    "IO": _RAW_IO,
+    "STORJ": _RAW_STORJ,
+    "ZEC": _RAW_ZEC,
+    "XMR": _RAW_XMR,
+    "SCRT": _RAW_SCRT,
+    "SHIB": _RAW_SHIB,
+    "FLOKI": _RAW_FLOKI,
+    "BONK": _RAW_BONK,
+    "WIF": _RAW_WIF,
+    "CRO": _RAW_CRO,
+    "LEO": _RAW_LEO,
+    "LTC": _RAW_LTC,
+    "BCH": _RAW_BCH,
+    "RPL": _RAW_RPL,
+    "ETHFI": _RAW_ETHFI,
 }
 
 FIXTURE_ASSETS: list[dict] = [
@@ -180,6 +374,103 @@ FIXTURE_ASSETS: list[dict] = [
     # Crypto — Memecoin — free tier
     {"symbol": "DOGE", "name": "Dogecoin",               "asset_type": "crypto", "category": "Memecoin",     "access": "free",   "coingecko_id": "dogecoin"},
     {"symbol": "PEPE", "name": "Pepe",                   "asset_type": "crypto", "category": "Memecoin",     "access": "free",   "coingecko_id": "pepe"},
+    # Stocks — holder tier
+    {"symbol": "AMZN", "name": "Amazon.com Inc.",        "asset_type": "stock",  "category": "Technology",     "access": "holder", "coingecko_id": None},
+    {"symbol": "GOOGL","name": "Alphabet Inc.",          "asset_type": "stock",  "category": "Technology",     "access": "holder", "coingecko_id": None},
+    {"symbol": "AAPL", "name": "Apple Inc.",             "asset_type": "stock",  "category": "Technology",     "access": "holder", "coingecko_id": None},
+    {"symbol": "INTC", "name": "Intel Corporation",      "asset_type": "stock",  "category": "Technology",     "access": "holder", "coingecko_id": None},
+    {"symbol": "QCOM", "name": "Qualcomm Inc.",          "asset_type": "stock",  "category": "Technology",     "access": "holder", "coingecko_id": None},
+    {"symbol": "MU",   "name": "Micron Technology",      "asset_type": "stock",  "category": "Technology",     "access": "holder", "coingecko_id": None},
+    {"symbol": "SMCI", "name": "Super Micro Computer",   "asset_type": "stock",  "category": "Technology",     "access": "holder", "coingecko_id": None},
+    {"symbol": "HOOD", "name": "Robinhood Markets Inc.", "asset_type": "stock",  "category": "Finance",        "access": "holder", "coingecko_id": None},
+    {"symbol": "RIOT", "name": "Riot Platforms Inc.",    "asset_type": "stock",  "category": "Crypto Mining",  "access": "holder", "coingecko_id": None},
+    {"symbol": "MARA", "name": "MARA Holdings Inc.",     "asset_type": "stock",  "category": "Crypto Mining",  "access": "holder", "coingecko_id": None},
+    {"symbol": "CLSK", "name": "CleanSpark Inc.",        "asset_type": "stock",  "category": "Crypto Mining",  "access": "holder", "coingecko_id": None},
+    {"symbol": "WULF", "name": "TeraWulf Inc.",          "asset_type": "stock",  "category": "Crypto Mining",  "access": "holder", "coingecko_id": None},
+    # Crypto — Layer 1 (additional) — holder tier
+    {"symbol": "TON",  "name": "Toncoin",                "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "the-open-network"},
+    {"symbol": "ATOM", "name": "Cosmos Hub",             "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "cosmos"},
+    {"symbol": "ALGO", "name": "Algorand",               "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "algorand"},
+    {"symbol": "XLM",  "name": "Stellar",                "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "stellar"},
+    {"symbol": "XTZ",  "name": "Tezos",                  "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "tezos"},
+    {"symbol": "EOS",  "name": "EOS",                    "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "eos"},
+    {"symbol": "FLOW", "name": "Flow",                   "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "flow"},
+    {"symbol": "KAS",  "name": "Kaspa",                  "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "kaspa"},
+    {"symbol": "SEI",  "name": "Sei",                    "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "sei-network"},
+    {"symbol": "TIA",  "name": "Celestia",               "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "celestia"},
+    {"symbol": "EGLD", "name": "MultiversX",             "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "elrond-erd-2"},
+    {"symbol": "KAVA", "name": "Kava",                   "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "kava"},
+    # Crypto — Layer 2 / Scaling — holder tier
+    {"symbol": "STRK", "name": "Starknet",               "asset_type": "crypto", "category": "Layer 2",      "access": "holder", "coingecko_id": "starknet"},
+    {"symbol": "ZK",   "name": "ZKsync",                 "asset_type": "crypto", "category": "Layer 2",      "access": "holder", "coingecko_id": "zksync"},
+    {"symbol": "MNT",  "name": "Mantle",                 "asset_type": "crypto", "category": "Layer 2",      "access": "holder", "coingecko_id": "mantle"},
+    {"symbol": "METIS","name": "Metis",                  "asset_type": "crypto", "category": "Layer 2",      "access": "holder", "coingecko_id": "metis-token"},
+    {"symbol": "MANTA","name": "Manta Network",          "asset_type": "crypto", "category": "Layer 2",      "access": "holder", "coingecko_id": "manta-network"},
+    {"symbol": "BOBA", "name": "Boba Network",           "asset_type": "crypto", "category": "Layer 2",      "access": "holder", "coingecko_id": "boba-network"},
+    # Crypto — Interoperability — holder tier
+    {"symbol": "AXL",  "name": "Axelar",                 "asset_type": "crypto", "category": "Interoperability", "access": "holder", "coingecko_id": "axelar"},
+    {"symbol": "ZRO",  "name": "LayerZero",              "asset_type": "crypto", "category": "Interoperability", "access": "holder", "coingecko_id": "layerzero"},
+    {"symbol": "W",    "name": "Wormhole",                "asset_type": "crypto", "category": "Interoperability", "access": "holder", "coingecko_id": "wormhole"},
+    {"symbol": "QNT",  "name": "Quant",                  "asset_type": "crypto", "category": "Interoperability", "access": "holder", "coingecko_id": "quant-network"},
+    {"symbol": "REN",  "name": "Ren",                    "asset_type": "crypto", "category": "Interoperability", "access": "holder", "coingecko_id": "republic-protocol"},
+    {"symbol": "SYN",  "name": "Synapse",                "asset_type": "crypto", "category": "Interoperability", "access": "holder", "coingecko_id": "synapse-2"},
+    # Crypto — DeFi (additional) — holder tier
+    {"symbol": "MKR",    "name": "Maker",                "asset_type": "crypto", "category": "DeFi",         "access": "holder", "coingecko_id": "maker"},
+    {"symbol": "CRV",    "name": "Curve DAO Token",      "asset_type": "crypto", "category": "DeFi",         "access": "holder", "coingecko_id": "curve-dao-token"},
+    {"symbol": "LDO",    "name": "Lido DAO",             "asset_type": "crypto", "category": "DeFi",         "access": "holder", "coingecko_id": "lido-dao"},
+    {"symbol": "SNX",    "name": "Synthetix",            "asset_type": "crypto", "category": "DeFi",         "access": "holder", "coingecko_id": "havven"},
+    {"symbol": "COMP",   "name": "Compound",             "asset_type": "crypto", "category": "DeFi",         "access": "holder", "coingecko_id": "compound-governance-token"},
+    {"symbol": "SUSHI",  "name": "Sushi",                "asset_type": "crypto", "category": "DeFi",         "access": "holder", "coingecko_id": "sushi"},
+    {"symbol": "CAKE",   "name": "PancakeSwap",          "asset_type": "crypto", "category": "DeFi",         "access": "holder", "coingecko_id": "pancakeswap-token"},
+    {"symbol": "1INCH",  "name": "1inch",                "asset_type": "crypto", "category": "DeFi",         "access": "holder", "coingecko_id": "1inch"},
+    {"symbol": "DYDX",   "name": "dYdX",                 "asset_type": "crypto", "category": "DeFi",         "access": "holder", "coingecko_id": "dydx-chain"},
+    {"symbol": "PENDLE", "name": "Pendle",               "asset_type": "crypto", "category": "DeFi",         "access": "holder", "coingecko_id": "pendle"},
+    # Crypto — GameFi — holder tier
+    {"symbol": "AXS",  "name": "Axie Infinity",          "asset_type": "crypto", "category": "GameFi",       "access": "holder", "coingecko_id": "axie-infinity"},
+    {"symbol": "SAND", "name": "The Sandbox",            "asset_type": "crypto", "category": "GameFi",       "access": "holder", "coingecko_id": "the-sandbox"},
+    {"symbol": "MANA", "name": "Decentraland",           "asset_type": "crypto", "category": "GameFi",       "access": "holder", "coingecko_id": "decentraland"},
+    {"symbol": "GALA", "name": "Gala",                   "asset_type": "crypto", "category": "GameFi",       "access": "holder", "coingecko_id": "gala"},
+    {"symbol": "IMX",  "name": "Immutable",              "asset_type": "crypto", "category": "GameFi",       "access": "holder", "coingecko_id": "immutable-x"},
+    {"symbol": "ENJ",  "name": "Enjin Coin",             "asset_type": "crypto", "category": "GameFi",       "access": "holder", "coingecko_id": "enjincoin"},
+    {"symbol": "ILV",  "name": "Illuvium",               "asset_type": "crypto", "category": "GameFi",       "access": "holder", "coingecko_id": "illuvium"},
+    {"symbol": "BEAM", "name": "Beam",                   "asset_type": "crypto", "category": "GameFi",       "access": "holder", "coingecko_id": "beam-2"},
+    # Crypto — RWA — holder tier
+    {"symbol": "ONDO",  "name": "Ondo",                  "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "ondo-finance"},
+    {"symbol": "POLYX", "name": "Polymesh",               "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "polymesh"},
+    {"symbol": "CFG",   "name": "Centrifuge",             "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "centrifuge"},
+    {"symbol": "RSR",   "name": "Reserve Rights",         "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "reserve-rights-token"},
+    {"symbol": "TRU",   "name": "TrueFi",                 "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "truefi"},
+    {"symbol": "OM",    "name": "MANTRA",                 "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "mantra-dao"},
+    # Crypto — Oracle/Data (additional) — holder tier
+    {"symbol": "PYTH", "name": "Pyth Network",           "asset_type": "crypto", "category": "Oracle/Data",  "access": "holder", "coingecko_id": "pyth-network"},
+    {"symbol": "BAND", "name": "Band Protocol",          "asset_type": "crypto", "category": "Oracle/Data",  "access": "holder", "coingecko_id": "band-protocol"},
+    {"symbol": "API3", "name": "API3",                   "asset_type": "crypto", "category": "Oracle/Data",  "access": "holder", "coingecko_id": "api3"},
+    # Crypto — AI/Compute (additional) — holder tier
+    {"symbol": "WLD",   "name": "Worldcoin",             "asset_type": "crypto", "category": "AI/Compute",   "access": "holder", "coingecko_id": "worldcoin-wld"},
+    {"symbol": "OCEAN", "name": "Ocean Protocol",        "asset_type": "crypto", "category": "AI/Compute",   "access": "holder", "coingecko_id": "ocean-protocol"},
+    {"symbol": "NMR",   "name": "Numeraire",             "asset_type": "crypto", "category": "AI/Compute",   "access": "holder", "coingecko_id": "numeraire"},
+    {"symbol": "ARKM",  "name": "Arkham",                "asset_type": "crypto", "category": "AI/Compute",   "access": "holder", "coingecko_id": "arkham"},
+    {"symbol": "IO",    "name": "io.net",                "asset_type": "crypto", "category": "AI/Compute",   "access": "holder", "coingecko_id": "io-net"},
+    # Crypto — Storage (additional) — holder tier
+    {"symbol": "STORJ", "name": "Storj",                 "asset_type": "crypto", "category": "Storage",      "access": "holder", "coingecko_id": "storj"},
+    # Crypto — Privacy — holder tier
+    {"symbol": "ZEC",  "name": "Zcash",                  "asset_type": "crypto", "category": "Privacy",      "access": "holder", "coingecko_id": "zcash"},
+    {"symbol": "XMR",  "name": "Monero",                 "asset_type": "crypto", "category": "Privacy",      "access": "holder", "coingecko_id": "monero"},
+    {"symbol": "SCRT", "name": "Secret",                 "asset_type": "crypto", "category": "Privacy",      "access": "holder", "coingecko_id": "secret"},
+    # Crypto — Memecoin (additional) — holder tier
+    {"symbol": "SHIB",  "name": "Shiba Inu",             "asset_type": "crypto", "category": "Memecoin",     "access": "holder", "coingecko_id": "shiba-inu"},
+    {"symbol": "FLOKI", "name": "FLOKI",                 "asset_type": "crypto", "category": "Memecoin",     "access": "holder", "coingecko_id": "floki"},
+    {"symbol": "BONK",  "name": "Bonk",                  "asset_type": "crypto", "category": "Memecoin",     "access": "holder", "coingecko_id": "bonk"},
+    {"symbol": "WIF",   "name": "dogwifhat",             "asset_type": "crypto", "category": "Memecoin",     "access": "holder", "coingecko_id": "dogwifcoin"},
+    # Crypto — Exchange tokens — holder tier
+    {"symbol": "CRO", "name": "Cronos",                  "asset_type": "crypto", "category": "Exchange",     "access": "holder", "coingecko_id": "crypto-com-chain"},
+    {"symbol": "LEO", "name": "UNUS SED LEO",            "asset_type": "crypto", "category": "Exchange",     "access": "holder", "coingecko_id": "leo-token"},
+    # Crypto — Legacy Layer 1 — holder tier
+    {"symbol": "LTC", "name": "Litecoin",                "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "litecoin"},
+    {"symbol": "BCH", "name": "Bitcoin Cash",            "asset_type": "crypto", "category": "Layer 1",      "access": "holder", "coingecko_id": "bitcoin-cash"},
+    # Crypto — Liquid staking — holder tier
+    {"symbol": "RPL",   "name": "Rocket Pool",           "asset_type": "crypto", "category": "Liquid Staking", "access": "holder", "coingecko_id": "rocket-pool"},
+    {"symbol": "ETHFI", "name": "Ether.fi",              "asset_type": "crypto", "category": "Liquid Staking", "access": "holder", "coingecko_id": "ether-fi"},
 ]
 
 

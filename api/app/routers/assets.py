@@ -6,11 +6,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.asset import Asset
+from app.models.intraday_price import IntradayPrice
 from app.models.price import DailyPrice
 from app.models.quote import AssetQuote
 from app.schemas.asset import AssetHistoryOut, AssetHistoryPoint, AssetListOut, AssetOut
 
 router = APIRouter()
+
+# Range -> approximate number of completed 30-min intraday buckets to return.
+_INTRADAY_RANGE_BUCKETS: dict[str, int] = {
+    "4H": 8,
+    "1D": 13,
+    "1W": 65,
+    "1M": 260,
+}
+# Range -> days of daily history to return.
+_DAILY_RANGE_DAYS: dict[str, int] = {
+    "3M": 90,
+    "1Y": 365,
+}
 
 
 async def _latest_prices(db: AsyncSession) -> dict[int, DailyPrice]:
@@ -127,6 +141,7 @@ async def get_asset(symbol: str, db: AsyncSession = Depends(get_db)) -> AssetOut
 async def get_asset_history(
     symbol: str,
     days: int = Query(default=90, ge=7, le=365),
+    range: Literal["4H", "1D", "1W", "1M", "3M", "1Y"] | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> AssetHistoryOut:
     result = await db.execute(
@@ -136,6 +151,12 @@ async def get_asset_history(
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset {symbol!r} not found")
 
+    if range in _INTRADAY_RANGE_BUCKETS:
+        return await _asset_history_intraday(db, asset, range)
+    return await _asset_history_daily(db, asset, _DAILY_RANGE_DAYS.get(range, days))
+
+
+async def _asset_history_daily(db: AsyncSession, asset: Asset, days: int) -> AssetHistoryOut:
     from datetime import date, timedelta
 
     cutoff = (date.today() - timedelta(days=days)).isoformat()
@@ -158,4 +179,33 @@ async def get_asset_history(
         prices=[AssetHistoryPoint(date=p.date, close=p.close) for p in prices],
         is_demo=is_demo,
         provider=provider,
+    )
+
+
+async def _asset_history_intraday(db: AsyncSession, asset: Asset, range_key: str) -> AssetHistoryOut:
+    limit = _INTRADAY_RANGE_BUCKETS[range_key]
+    result = await db.execute(
+        select(IntradayPrice)
+        .where(IntradayPrice.asset_id == asset.id, IntradayPrice.interval == "30m")
+        .order_by(IntradayPrice.bucket_ts.desc())
+        .limit(limit)
+    )
+    rows = list(reversed(result.scalars().all()))
+
+    is_demo: bool | None = None
+    if rows:
+        is_demo = any(r.is_demo for r in rows)
+
+    provider = "fixture" if is_demo else ("coingecko" if asset.asset_type == "crypto" else "marketstack")
+
+    return AssetHistoryOut(
+        symbol=asset.symbol,
+        asset_type=asset.asset_type,
+        prices=[
+            AssetHistoryPoint(date=r.bucket_ts.date().isoformat(), close=r.close, ts=r.bucket_ts.isoformat())
+            for r in rows
+        ],
+        is_demo=is_demo,
+        provider=provider,
+        collecting_data=len(rows) < limit,
     )

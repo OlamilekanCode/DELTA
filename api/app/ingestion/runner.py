@@ -245,10 +245,19 @@ async def seed_fixture_intraday_data(db: AsyncSession) -> None:
         await ingest_intraday_candles(db, asset.id, candles, provider="fixture", is_demo=True)
     await db.commit()
 
+    from app.services.intraday import _load_intraday_open_close
+
     stocks = [a for a in assets if a.asset_type == "stock"]
     crypto_assets = [a for a in assets if a.asset_type == "crypto"]
+
+    # Preload every crypto's intraday data once — recompute_intraday_scores_for_stock
+    # would otherwise re-query all crypto assets for each stock (stocks x crypto queries).
+    crypto_data_cache = {ca.id: await _load_intraday_open_close(db, ca.id) for ca in crypto_assets}
+
     for stock in stocks:
-        await recompute_intraday_scores_for_stock(db, stock, crypto_assets)
+        await recompute_intraday_scores_for_stock(
+            db, stock, crypto_assets, crypto_data_cache=crypto_data_cache
+        )
 
 
 async def main() -> None:

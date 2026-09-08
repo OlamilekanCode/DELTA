@@ -76,6 +76,14 @@ async def recompute_all_scores(db: AsyncSession) -> int:
     else:
         demo_asset_ids = set()
 
+    # Crypto prices don't vary per stock — load them once and reuse across every
+    # stock's computation instead of re-querying inside the stock loop.
+    crypto_map: dict[str, tuple[str, str, list[PricePoint]]] = {}
+    for ca in crypto_assets:
+        cp, _ = await _load_prices(db, ca.id, 90, prefer_adj_close=False)
+        if len(cp) >= 2:
+            crypto_map[ca.symbol] = (ca.name, ca.category, cp)
+
     for stock in stocks:
         stock_prices, stock_adj_close_fallback = await _load_prices(
             db, stock.id, 90, prefer_adj_close=True
@@ -84,12 +92,6 @@ async def recompute_all_scores(db: AsyncSession) -> int:
             continue
 
         stock_is_demo = stock.id in demo_asset_ids
-
-        crypto_map: dict[str, tuple[str, str, list[PricePoint]]] = {}
-        for ca in crypto_assets:
-            cp, _ = await _load_prices(db, ca.id, 90, prefer_adj_close=False)
-            if len(cp) >= 2:
-                crypto_map[ca.symbol] = (ca.name, ca.category, cp)
 
         scores = compute_exposure_scores(stock_prices, crypto_map)
 

@@ -27,6 +27,7 @@ class AssetListOut(BaseModel):
 class AssetHistoryPoint(BaseModel):
     date: str
     close: float
+    ts: str | None = None  # full ISO8601 timestamp, populated for intraday ranges only
 
 
 class AssetHistoryOut(BaseModel):
@@ -35,3 +36,4 @@ class AssetHistoryOut(BaseModel):
     prices: list[AssetHistoryPoint]
     is_demo: bool | None
     provider: str
+    collecting_data: bool | None = None

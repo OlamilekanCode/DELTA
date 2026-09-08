@@ -160,9 +160,17 @@ async def _load_intraday_open_close(
 
 
 async def compute_intraday_scores(
-    db: AsyncSession, stock: Asset, crypto_assets: list[Asset]
+    db: AsyncSession,
+    stock: Asset,
+    crypto_assets: list[Asset],
+    crypto_data_cache: dict[int, dict] | None = None,
 ) -> tuple[list[IntradayScoreResult], int]:
-    """Pure computation (no writes). Returns (results, stock_candle_count)."""
+    """Pure computation (no writes). Returns (results, stock_candle_count).
+
+    `crypto_data_cache` (asset_id -> {bucket_ts: (open, close)}, unfiltered by date)
+    lets a caller iterating many stocks preload every crypto's data once instead
+    of re-querying it per stock — see seed_fixture_intraday_data.
+    """
     stock_data = await _load_intraday_open_close(db, stock.id)
     stock_candle_count = len(stock_data)
 
@@ -175,7 +183,11 @@ async def compute_intraday_scores(
 
     results: list[IntradayScoreResult] = []
     for ca in crypto_assets:
-        crypto_data = await _load_intraday_open_close(db, ca.id, allowed_dates=allowed_dates)
+        if crypto_data_cache is not None:
+            raw = crypto_data_cache.get(ca.id, {})
+            crypto_data = {ts: v for ts, v in raw.items() if ts.date() in allowed_dates}
+        else:
+            crypto_data = await _load_intraday_open_close(db, ca.id, allowed_dates=allowed_dates)
         common = sorted(set(stock_data) & set(crypto_data))
         s_rets = [math.log(stock_data[t][1] / stock_data[t][0]) for t in common]
         c_rets = [math.log(crypto_data[t][1] / crypto_data[t][0]) for t in common]
@@ -197,14 +209,19 @@ async def compute_intraday_scores(
 
 
 async def recompute_intraday_scores_for_stock(
-    db: AsyncSession, stock: Asset, crypto_assets: list[Asset]
+    db: AsyncSession,
+    stock: Asset,
+    crypto_assets: list[Asset],
+    crypto_data_cache: dict[int, dict] | None = None,
 ) -> tuple[list[IntradayScoreResult], int]:
     """Compute the full result set first, then bulk-upsert atomically.
 
     Partial failure (an exception before commit) leaves the last stored scores
     untouched, since nothing is deleted until the full set is ready in memory.
     """
-    results, stock_candle_count = await compute_intraday_scores(db, stock, crypto_assets)
+    results, stock_candle_count = await compute_intraday_scores(
+        db, stock, crypto_assets, crypto_data_cache=crypto_data_cache
+    )
     ready = [r for r in results if not r.collecting_data]
 
     if ready:
