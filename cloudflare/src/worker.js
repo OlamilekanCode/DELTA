@@ -12,6 +12,15 @@
  *   npx wrangler deploy
  */
 
+// Cron expression -> backend endpoint. Must stay in sync with the `crons`
+// list in wrangler.toml — three distinct job types, each independently
+// scheduled (see cloudflare/wrangler.toml for rationale).
+const ROUTES = {
+  "*/5 * * * *": "/api/v1/cron/refresh-crypto-quotes",
+  "*/30 * * * *": "/api/v1/cron/refresh-intraday",
+  "0 23 * * 2,5": "/api/v1/cron/refresh-history-and-scores",
+};
+
 export default {
   /**
    * @param {ScheduledEvent} event
@@ -27,11 +36,14 @@ export default {
       return;
     }
 
-    // Route by cron expression
-    const endpoint =
-      event.cron === "*/5 * * * *"
-        ? "/api/v1/cron/refresh-crypto-quotes"
-        : "/api/v1/cron/refresh-history-and-scores";
+    const endpoint = ROUTES[event.cron];
+    if (!endpoint) {
+      // Never silently fall back to a different job — an unrecognized
+      // schedule string (e.g. a wrangler.toml edit without a matching
+      // ROUTES entry) is a config bug that must be visible, not masked.
+      console.error(`Unrecognized cron schedule "${event.cron}" — no route configured, skipping`);
+      return;
+    }
 
     ctx.waitUntil(dispatch(base, endpoint, secret));
   },

@@ -63,3 +63,23 @@ async def test_cron_refresh_history_and_scores_ok(client: AsyncClient) -> None:
 async def test_cron_history_no_secret_returns_401(client: AsyncClient) -> None:
     resp = await client.post("/api/v1/cron/refresh-history-and-scores")
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_cron_refresh_intraday_ok(client: AsyncClient) -> None:
+    """With USE_DEMO_DATA=true, cmd_refresh_intraday() skips immediately —
+    this tests authentication, routing and the distinct advisory lock."""
+    resp = await client.post(
+        "/api/v1/cron/refresh-intraday",
+        headers={"x-cron-secret": _SECRET},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["command"] == "refresh-intraday"
+
+
+@pytest.mark.asyncio
+async def test_cron_intraday_no_secret_returns_401(client: AsyncClient) -> None:
+    resp = await client.post("/api/v1/cron/refresh-intraday")
+    assert resp.status_code == 401
