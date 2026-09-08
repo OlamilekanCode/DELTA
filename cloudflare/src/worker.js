@@ -17,7 +17,7 @@
 // scheduled (see cloudflare/wrangler.toml for rationale).
 const ROUTES = {
   "*/5 * * * *": "/api/v1/cron/refresh-crypto-quotes",
-  "*/30 * * * *": "/api/v1/cron/refresh-intraday",
+  "2,32 * * * *": "/api/v1/cron/refresh-intraday",
   "0 23 * * 2,5": "/api/v1/cron/refresh-history-and-scores",
 };
 

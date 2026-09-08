@@ -9,6 +9,7 @@ compatibility_date = "2024-09-23"
 [triggers]
 crons = [
   "*/5 * * * *",    # every 5 minutes → refresh-crypto-quotes
-  "*/30 * * * *",   # every 30 minutes → refresh-intraday
+  "2,32 * * * *",   # 2 min after each 30-min boundary → refresh-intraday (offset so the
+                     # just-completed Marketstack/candle data has actually landed)
   "0 23 * * 2,5",   # 23:00 UTC, Tuesday + Friday (after US market close) → refresh-history-and-scores
 ]
