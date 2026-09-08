@@ -199,6 +199,16 @@ export default function PortfolioExposure() {
   }
 }
 
+interface PortfolioExposureResponse {
+  portfolio_exposure_score: number | null;
+  note?: string;
+  stock?: string;
+  assets?: { symbol: string; weight: number; score?: number }[];
+  excluded?: { symbol?: string; contract_address?: string; reason: string }[];
+  ranked?: { stock: string; portfolio_exposure_score: number; assets: { symbol: string; weight: number; score: number }[] }[];
+  data_ts?: string | null;
+}
+
 function PortfolioDetail({
   tier,
   entitlements,
@@ -213,9 +223,14 @@ function PortfolioDetail({
     queryFn: async () => {
       const res = await fetch("/api/portfolio/exposure", { cache: "no-store" });
       if (!res.ok) return null;
-      return res.json() as Promise<{ portfolio_exposure_score: number | null; note?: string }>;
+      return res.json() as Promise<PortfolioExposureResponse>;
     },
   });
+
+  const topRanked = exposure?.ranked?.[0] ?? null;
+  const headlineScore = exposure?.portfolio_exposure_score ?? topRanked?.portfolio_exposure_score ?? null;
+  const headlineStock = exposure?.stock ?? topRanked?.stock ?? null;
+  const hasPositions = Boolean(exposure?.assets?.length || exposure?.ranked?.length);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
@@ -229,22 +244,52 @@ function PortfolioDetail({
       </div>
 
       <div className="rounded-2xl border border-white/[0.09] bg-panel p-6">
-        <p className="font-mono text-xs uppercase tracking-widest text-muted">Portfolio Exposure Score</p>
+        <p className="font-mono text-xs uppercase tracking-widest text-muted">
+          {headlineStock ? `Portfolio Exposure — ${headlineStock}` : "Portfolio Exposure Score"}
+        </p>
         <p className="mt-2 font-heading text-4xl font-bold text-text">
-          {exposure?.portfolio_exposure_score != null ? formatScore(exposure.portfolio_exposure_score) : "—"}
+          {headlineScore != null ? formatScore(headlineScore) : "—"}
         </p>
         <p className="mt-3 max-w-md font-mono text-xs text-muted">
           {exposure?.note ??
-            "Portfolio position tracking is not yet available — this will populate once wallet asset positions can be read and weighted against each asset's signed Exposure Score."}
+            (hasPositions
+              ? "Signed correlation between your wallet's crypto holdings and the listed stock, weighted by portfolio share."
+              : "No wallet positions found yet — refresh your wallet to read current on-chain holdings.")}
         </p>
       </div>
 
       {showDetailed && (
         <div className="mt-4 rounded-2xl border border-white/[0.09] bg-panel p-6">
-          <p className="font-mono text-xs uppercase tracking-widest text-muted">Per-Asset Breakdown</p>
-          <p className="mt-2 font-mono text-sm text-muted/70">
-            Detailed asset and sector exposure will appear here once position tracking is live.
-          </p>
+          <p className="mb-3 font-mono text-xs uppercase tracking-widest text-muted">Holdings Weight</p>
+          {exposure?.assets?.length ? (
+            <ul className="space-y-2">
+              {exposure.assets.map((a) => (
+                <li key={a.symbol} className="flex items-center justify-between font-mono text-sm">
+                  <span className="text-text">{a.symbol}</span>
+                  <span className="text-muted">{(a.weight * 100).toFixed(1)}%</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="font-mono text-sm text-muted/70">
+              Detailed asset and sector exposure will appear here once wallet positions are refreshed.
+            </p>
+          )}
+          {exposure?.ranked && exposure.ranked.length > 1 && (
+            <>
+              <p className="mb-2 mt-5 font-mono text-xs uppercase tracking-widest text-muted">Ranked by Stock</p>
+              <ul className="space-y-1.5">
+                {exposure.ranked.slice(0, 5).map((r) => (
+                  <li key={r.stock} className="flex items-center justify-between font-mono text-sm">
+                    <span className="text-text">{r.stock}</span>
+                    <span className={r.portfolio_exposure_score >= 0 ? "text-green" : "text-red-400"}>
+                      {formatScore(r.portfolio_exposure_score)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       )}
 
