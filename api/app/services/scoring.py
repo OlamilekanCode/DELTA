@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
 from app.models.price import DailyPrice
-from app.services.correlation import PricePoint, compute_exposure_scores
+from app.services.correlation import MIN_OBSERVATIONS, PricePoint, compute_exposure_scores
 
 
 async def _load_prices(db: AsyncSession, asset_id: int, days: int) -> list[PricePoint]:
@@ -78,6 +78,7 @@ async def recompute_all_scores(db: AsyncSession) -> int:
             # Pair-level is_demo: True if EITHER the stock OR the crypto has demo prices.
             # Only mark live (False) when both assets use real provider data.
             pair_is_demo = stock_is_demo or (ca.id in demo_asset_ids)
+            data_quality = "ok" if s.observations >= MIN_OBSERVATIONS * 1.2 else "low_observations"
             db.add(StoredExposureScore(
                 stock_id=stock.id,
                 crypto_id=crypto_id,
@@ -87,6 +88,8 @@ async def recompute_all_scores(db: AsyncSession) -> int:
                 computed_at=now,
                 model_version="v1",
                 is_demo=pair_is_demo,
+                data_quality=data_quality,
+                data_ts=datetime.fromisoformat(s.last_date).replace(tzinfo=UTC),
             ))
             total += 1
 

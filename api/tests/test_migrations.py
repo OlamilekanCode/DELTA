@@ -64,8 +64,8 @@ def test_migrate_from_base_to_head() -> None:
         # Verify current revision matches head
         result = _alembic(["current"], db_url)
         assert result.returncode == 0
-        assert "0007" in result.stdout, (
-            f"Expected revision 0007 to be current, got:\n{result.stdout}"
+        assert "(head)" in result.stdout, (
+            f"Expected current revision to be the head, got:\n{result.stdout}"
         )
     finally:
         db_path.unlink(missing_ok=True)

@@ -23,3 +23,6 @@ class StoredExposureScore(Base):
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     model_version: Mapped[str] = mapped_column(String(20), nullable=False, default="v1")
     is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    data_quality: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # "ok" | "adj_close_missing" | "low_observations"
+    data_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -33,9 +33,11 @@ def align_series(
     return aligned_a, aligned_b, dates
 
 
-def pearson_r(xs: list[float], ys: list[float]) -> tuple[float, int]:
+def pearson_r(
+    xs: list[float], ys: list[float], min_observations: int = MIN_OBSERVATIONS
+) -> tuple[float, int]:
     n = len(xs)
-    if n < MIN_OBSERVATIONS:
+    if n < min_observations:
         return 0.0, n
     arr = np.corrcoef(np.array(xs, dtype=float), np.array(ys, dtype=float))
     r = float(arr[0, 1])
@@ -61,6 +63,7 @@ class ExposureScore:
     score: float          # signed Pearson r in [-1.00, +1.00]
     raw_correlation: float
     observations: int
+    last_date: str        # most recent aligned date used in the calculation
 
 
 def compute_exposure_scores(
@@ -90,6 +93,7 @@ def compute_exposure_scores(
             score=round(r, 4),
             raw_correlation=round(r, 4),
             observations=n,
+            last_date=common_dates[-1],
         ))
 
     # Sort by relationship magnitude so the strongest relationships appear first,

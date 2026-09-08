@@ -17,5 +17,6 @@ class DailyPrice(Base):
     )
     date: Mapped[str] = mapped_column(String(10), nullable=False)  # "YYYY-MM-DD"
     close: Mapped[float] = mapped_column(Float, nullable=False)
+    adj_close: Mapped[float | None] = mapped_column(Float, nullable=True)
     volume: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
