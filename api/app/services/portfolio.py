@@ -24,6 +24,7 @@ from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
 from app.models.portfolio import WalletEntitlement
 from app.models.portfolio_contract import PortfolioContract
+from app.models.price import DailyPrice
 from app.models.quote import AssetQuote
 from app.models.wallet_position import CachedWalletPosition
 from app.services.blockchain import JsonRpcProvider, RpcProvider
@@ -284,7 +285,18 @@ async def refresh_wallet_positions(
 
 async def _stock_exposure_for_weights(
     db: AsyncSession, stock: Asset, weights: list[tuple[Asset, Decimal]], excluded: list[dict]
-) -> tuple[float, list[dict], list[dict]]:
+) -> tuple[float | None, list[dict], list[dict]]:
+    """Weighted-average signed correlation across the wallet's SYNTHETIC
+    (crypto, non-stablecoin) holdings only. `weights` are each asset's share
+    of the wallet's TOTAL valued USD (direct + synthetic + cash combined —
+    see compute_portfolio_exposure), so a large stablecoin or direct
+    stock-token holding correctly dilutes this score even though those
+    assets never appear in `weights` themselves. None (never 0.0) when
+    there is nothing synthetic to correlate at all — a confirmed zero
+    correlation and "no crypto held" must never look the same."""
+    if not weights:
+        return None, [], list(excluded)
+
     scores_result = await db.execute(
         select(StoredExposureScore).where(StoredExposureScore.stock_id == stock.id)
     )
@@ -300,14 +312,132 @@ async def _stock_exposure_for_weights(
             continue
         total += weight * Decimal(str(score))
         contributing.append({"symbol": asset.symbol, "weight": float(weight), "score": score})
+    if not contributing:
+        return None, [], stock_excluded
     return float(total), contributing, stock_excluded
+
+
+async def _classify_positions(
+    db: AsyncSession, positions: list[CachedWalletPosition]
+) -> tuple[
+    list[tuple[Asset, Decimal, PortfolioContract | None]],
+    list[tuple[Asset, Decimal, PortfolioContract]],
+    list[tuple[Asset, Decimal]],
+    list[dict],
+    datetime | None,
+]:
+    """Splits valued positions into (synthetic, direct, cash) buckets.
+
+    - synthetic: crypto (non-stablecoin) holdings — feed the existing
+      correlation-weighted score.
+    - direct: contract_type == "robinhood_stock" — literal ownership of
+      that stock's exposure, current_multiplier applied to the raw balance.
+    - cash: asset_type == "stablecoin" — valued at a flat $1.00/unit (no
+      AssetQuote needed; stablecoins never get daily price history).
+
+    $SynthEx is excluded outright (checked against the configured token
+    address) — it's an access/entitlement token and header balance, never
+    a portfolio exposure input, regardless of whether it happens to have a
+    stored price yet.
+
+    Returns (synthetic, direct, cash, excluded, oldest_quote_ts).
+    """
+    settings = get_settings()
+    synthex_address = (settings.synthex_token_address or "").lower()
+
+    synthetic: list[tuple[Asset, Decimal, PortfolioContract | None]] = []
+    direct: list[tuple[Asset, Decimal, PortfolioContract]] = []
+    cash: list[tuple[Asset, Decimal]] = []
+    excluded: list[dict] = []
+    oldest_quote_ts: datetime | None = None
+
+    contract_keys = {(p.chain_id, p.contract_address.lower()) for p in positions}
+    contracts_by_key: dict[tuple[int, str], PortfolioContract] = {}
+    if contract_keys:
+        chain_ids = {k[0] for k in contract_keys}
+        result = await db.execute(select(PortfolioContract).where(PortfolioContract.chain_id.in_(chain_ids)))
+        for c in result.scalars().all():
+            contracts_by_key[(c.chain_id, c.contract_address.lower())] = c
+
+    stock_asset_ids = {
+        c.asset_id for c in contracts_by_key.values() if c.contract_type == "robinhood_stock"
+    }
+    latest_stock_prices: dict[int, float] = {}
+    if stock_asset_ids:
+        sub = (
+            select(DailyPrice.asset_id, func.max(DailyPrice.date).label("max_date"))
+            .where(DailyPrice.asset_id.in_(stock_asset_ids))
+            .group_by(DailyPrice.asset_id)
+            .subquery()
+        )
+        price_result = await db.execute(
+            select(DailyPrice).join(
+                sub, (DailyPrice.asset_id == sub.c.asset_id) & (DailyPrice.date == sub.c.max_date)
+            )
+        )
+        latest_stock_prices = {row.asset_id: row.close for row in price_result.scalars().all()}
+
+    for p in positions:
+        if p.asset_id is None:
+            excluded.append({"contract_address": p.contract_address, "reason": "unsupported_token"})
+            continue
+        if synthex_address and p.contract_address.lower() == synthex_address:
+            # Access/entitlement token, never a portfolio exposure input.
+            continue
+        asset = await db.get(Asset, p.asset_id)
+        if asset is None:
+            continue
+        contract = contracts_by_key.get((p.chain_id, p.contract_address.lower()))
+        qty = Decimal(p.quantity_raw) / Decimal(10 ** p.decimals)
+
+        if asset.asset_type == "stablecoin":
+            if qty <= 0:
+                continue
+            cash.append((asset, qty))  # $1.00/unit — no AssetQuote lookup needed
+            continue
+
+        if contract is not None and contract.contract_type == "robinhood_stock":
+            if contract.current_multiplier is not None:
+                qty *= Decimal(str(contract.current_multiplier))
+            price = latest_stock_prices.get(asset.id)
+            if price is None or price <= 0:
+                excluded.append({"symbol": asset.symbol, "reason": "missing_price"})
+                continue
+            usd_value = qty * Decimal(str(price))
+            if usd_value <= 0:
+                continue
+            direct.append((asset, usd_value, contract))
+            continue
+
+        # Everything else: crypto (native/erc20), priced via AssetQuote —
+        # the existing synthetic-exposure path.
+        quote_result = await db.execute(select(AssetQuote).where(AssetQuote.asset_id == p.asset_id))
+        quote_row = quote_result.scalar_one_or_none()
+        if quote_row is None:
+            excluded.append({"symbol": asset.symbol, "reason": "missing_price"})
+            continue
+        usd_value = qty * Decimal(str(quote_row.price_usd))
+        if usd_value <= 0:
+            continue
+        quote_ts = quote_row.ts if quote_row.ts.tzinfo is not None else quote_row.ts.replace(tzinfo=UTC)
+        oldest_quote_ts = quote_ts if oldest_quote_ts is None else min(oldest_quote_ts, quote_ts)
+        synthetic.append((asset, usd_value, contract))
+
+    return synthetic, direct, cash, excluded, oldest_quote_ts
 
 
 async def compute_portfolio_exposure(
     db: AsyncSession, wallet_address: str, stock_symbol: str | None = None
 ) -> dict:
     """Σ(crypto portfolio weight × signed stock/crypto Exposure Score) for a
-    selected stock, or a ranked summary across every stock with data.
+    selected stock, or a ranked summary across every stock with data —
+    reported as `portfolio_exposure_score`, alongside `direct_exposure`
+    (Robinhood Stock Token holdings — literal, not correlation-based) and
+    `cash` (stablecoin holdings, zero correlation) as separate figures.
+    They are never combined into one misleading blended score; all three
+    share the same total-USD denominator, so a stablecoin or direct stock
+    holding still dilutes the synthetic score's weight even though it
+    never appears in the correlation sum itself.
 
     Reads only stored positions and stored quotes/scores — never a live
     provider call. Returns an honest empty/excluded structure (never a
@@ -329,10 +459,6 @@ async def compute_portfolio_exposure(
             "note": "No wallet positions found yet — refresh to read current on-chain holdings",
         }
 
-    excluded: list[dict] = []
-    weights: list[tuple[Asset, Decimal]] = []
-    total_usd = Decimal(0)
-    valued: list[tuple[Asset, Decimal]] = []
     # The portfolio-level snapshot is only as fresh as its stalest
     # constituent position — using the newest position's timestamp would
     # let one freshly-refreshed holding mask every other position being
@@ -343,29 +469,13 @@ async def compute_portfolio_exposure(
     data_ts_aware = data_ts if (data_ts is None or data_ts.tzinfo is not None) else data_ts.replace(tzinfo=UTC)
     positions_stale = data_ts_aware is None or (datetime.now(UTC) - data_ts_aware) > POSITIONS_STALE_AFTER
 
-    oldest_quote_ts: datetime | None = None
-    for p in positions:
-        if p.asset_id is None:
-            excluded.append({"contract_address": p.contract_address, "reason": "unsupported_token"})
-            continue
-        asset = await db.get(Asset, p.asset_id)
-        if asset is None:
-            continue
-        quote_result = await db.execute(select(AssetQuote).where(AssetQuote.asset_id == p.asset_id))
-        quote_row = quote_result.scalar_one_or_none()
-        if quote_row is None:
-            excluded.append({"symbol": asset.symbol, "reason": "missing_price"})
-            continue
-        qty = Decimal(p.quantity_raw) / Decimal(10 ** p.decimals)
-        usd_value = qty * Decimal(str(quote_row.price_usd))
-        if usd_value <= 0:
-            continue
-        quote_ts = quote_row.ts if quote_row.ts.tzinfo is not None else quote_row.ts.replace(tzinfo=UTC)
-        oldest_quote_ts = quote_ts if oldest_quote_ts is None else min(oldest_quote_ts, quote_ts)
-        valued.append((asset, usd_value))
-        total_usd += usd_value
-
+    synthetic, direct, cash, excluded, oldest_quote_ts = await _classify_positions(db, positions)
     quotes_stale = oldest_quote_ts is None or (datetime.now(UTC) - oldest_quote_ts) > QUOTES_STALE_AFTER
+
+    synthetic_usd = sum((v for _, v, _ in synthetic), Decimal(0))
+    direct_usd = sum((v for _, v, _ in direct), Decimal(0))
+    cash_usd = sum(qty for _, qty in cash)  # $1.00/unit
+    total_usd = synthetic_usd + direct_usd + cash_usd
 
     if total_usd <= 0:
         return {
@@ -378,13 +488,37 @@ async def compute_portfolio_exposure(
             "note": "No valued positions — every holding is unsupported or missing a stored price",
         }
 
-    weights = [(asset, usd_value / total_usd) for asset, usd_value in valued]
+    # Synthetic weights are each crypto asset's share of the TOTAL wallet
+    # value (not just the synthetic subtotal) — direct/cash holdings still
+    # "count" in the denominator even though they never enter the
+    # correlation sum, so a wallet that's mostly stablecoins correctly
+    # shows a heavily-diluted synthetic score rather than one computed as
+    # if the stablecoins weren't there.
+    weights = [(asset, usd_value / total_usd) for asset, usd_value, _contract in synthetic]
+
+    direct_holdings = [
+        {"symbol": asset.symbol, "usd_value": float(usd_value), "pct_of_portfolio": float(usd_value / total_usd)}
+        for asset, usd_value, _contract in direct
+    ]
+    cash_holdings = [
+        {"symbol": asset.symbol, "usd_value": float(qty), "pct_of_portfolio": float(qty / total_usd)}
+        for asset, qty in cash
+    ]
+    direct_summary = {
+        "direct_exposure_usd": float(direct_usd),
+        "direct_exposure_pct": float(direct_usd / total_usd),
+        "direct_holdings": direct_holdings,
+        "cash_usd": float(cash_usd),
+        "cash_pct": float(cash_usd / total_usd),
+        "cash_holdings": cash_holdings,
+    }
+
     # Coverage: how much of the wallet's SUPPORTED, valued holdings this
     # analysis actually represents — a result built from one small holding
     # must never be presented as if it spoke for the whole wallet.
     coverage = {
         "total_usd_value": float(total_usd),
-        "supported_position_count": len(valued),
+        "supported_position_count": len(synthetic) + len(direct) + len(cash),
         "excluded_position_count": len(excluded),
         "positions_stale": positions_stale,
         "quotes_stale": quotes_stale,
@@ -398,12 +532,15 @@ async def compute_portfolio_exposure(
         if stock is None:
             return {"error": "unknown_stock", "portfolio_exposure_score": None, "assets": []}
         score, contributing, stock_excluded = await _stock_exposure_for_weights(db, stock, weights, excluded)
+        direct_for_stock = next((h for h in direct_holdings if h["symbol"] == stock.symbol), None)
         return {
             "stock": stock.symbol,
-            "portfolio_exposure_score": round(score, 4),
+            "portfolio_exposure_score": round(score, 4) if score is not None else None,
             "assets": contributing,
             "excluded": stock_excluded,
             "data_ts": data_ts.isoformat() if data_ts else None,
+            "direct_holding_for_stock": direct_for_stock,
+            **direct_summary,
             **coverage,
         }
 
@@ -430,6 +567,7 @@ async def compute_portfolio_exposure(
         "category_exposure": category_exposure,
         "excluded": excluded,
         "data_ts": data_ts.isoformat() if data_ts else None,
+        **direct_summary,
         **coverage,
     }
 
@@ -476,13 +614,18 @@ def _summary_shape(exposure: dict) -> dict:
         }
     if exposure.get("note"):
         shaped["note"] = exposure["note"]
-    # Freshness/coverage counts are safe to surface at every tier — they are
-    # not detailed financial data (no per-asset weights or symbols), just a
-    # signal that the user should refresh and how much of the wallet this
-    # covers. Dropping supported_position_count here (while keeping
-    # total_usd_value) left the frontend showing "0 supported positions"
-    # alongside a real, non-zero dollar total.
-    for key in ("positions_stale", "quotes_stale", "total_usd_value", "supported_position_count", "excluded_position_count"):
+    # Freshness/coverage/allocation TOTALS are safe to surface at every tier
+    # — they're aggregate figures (no per-asset symbols, weights or
+    # individual holdings), just a signal for how the wallet is allocated
+    # and how much of it this analysis covers. The underlying
+    # direct_holdings/cash_holdings LISTS stay detailed-tier-only —
+    # deliberately not included here.
+    for key in (
+        "positions_stale", "quotes_stale", "total_usd_value",
+        "supported_position_count", "excluded_position_count",
+        "direct_exposure_usd", "direct_exposure_pct",
+        "cash_usd", "cash_pct",
+    ):
         if key in exposure:
             shaped[key] = exposure[key]
     return shaped

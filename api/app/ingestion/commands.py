@@ -93,6 +93,11 @@ async def cmd_backfill() -> None:
         asset_rows = result.all()  # plain tuples — safe after session close
 
     for asset_id, symbol, asset_type in asset_rows:
+        if asset_type == "stablecoin":
+            # Stablecoins are valued at a flat $1.00/unit (see
+            # services/portfolio.py) — they never need daily price history
+            # from either provider.
+            continue
         provider = cg if asset_type == "crypto" else ms
         try:
             async with get_factory()() as asset_db:

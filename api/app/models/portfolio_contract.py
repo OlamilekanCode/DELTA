@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -51,5 +51,13 @@ class PortfolioContract(Base):
     # "coingecko" | "robinhood" | "curated_alias"
     verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Robinhood Stock Token corporate-action multiplier (splits/reverse
+    # splits) — synced from the same registry as the contract address.
+    # Only balanceOf() is called on-chain (see services/wallet_reader.py);
+    # balanceOfUI()'s selector has not been confirmed against a live
+    # contract, so this multiplier is applied client-side at valuation
+    # time (services/portfolio.py) instead of trusting an unverified
+    # on-chain call. None for non-stock-token contracts.
+    current_multiplier: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

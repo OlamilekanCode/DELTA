@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
 from app.models.portfolio_contract import PortfolioContract
+from app.models.price import DailyPrice
 from app.models.quote import AssetQuote
 from app.models.wallet_position import CachedWalletPosition
 from app.services.blockchain import MockRpcProvider
@@ -333,6 +334,143 @@ async def test_compute_portfolio_exposure_ranked_summary_sorted_by_magnitude(db:
     result = await compute_portfolio_exposure(db, WALLET)
     ranked_stocks = [r["stock"] for r in result["ranked"]]
     assert ranked_stocks[0] == "TSLA"  # |-0.9| > |0.3|
+
+
+# ── Direct (stock token) / synthetic (crypto) / cash (stablecoin) split ────
+
+async def _seed_stablecoin_position(db: AsyncSession, symbol: str, quantity: float, decimals: int = 6) -> Asset:
+    asset = (await db.execute(select(Asset).where(Asset.symbol == symbol))).scalar_one()
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=8453, contract_address=f"0x{symbol.lower()}stable",
+        asset_id=asset.id, quantity_raw=str(int(quantity * 10**decimals)), decimals=decimals,
+        block_number=1, updated_at=datetime.now(UTC),
+    ))
+    await db.commit()
+    return asset
+
+
+async def _seed_stock_token_position(
+    db: AsyncSession, symbol: str, quantity: float, price: float,
+    current_multiplier: float | None = None, decimals: int = 18,
+) -> Asset:
+    """Seeds a robinhood_stock PortfolioContract, a matching DailyPrice for
+    the underlying stock, and a CachedWalletPosition holding it."""
+    from datetime import date as date_cls
+
+    asset = (await db.execute(select(Asset).where(Asset.symbol == symbol))).scalar_one()
+    existing_price = (await db.execute(
+        select(DailyPrice).where(DailyPrice.asset_id == asset.id, DailyPrice.date == date_cls.today().isoformat())
+    )).scalar_one_or_none()
+    if existing_price:
+        existing_price.close = price
+    else:
+        db.add(DailyPrice(asset_id=asset.id, date=date_cls.today().isoformat(), close=price, is_demo=True))
+    await db.commit()
+
+    contract_address = f"0x{symbol.lower()}stocktoken"
+    await _seed_portfolio_contract(
+        db, 4663, contract_address, decimals, symbol, contract_type="robinhood_stock",
+    )
+    if current_multiplier is not None:
+        row = (await db.execute(
+            select(PortfolioContract).where(
+                PortfolioContract.chain_id == 4663, PortfolioContract.contract_address == contract_address
+            )
+        )).scalar_one()
+        row.current_multiplier = current_multiplier
+        await db.commit()
+
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=4663, contract_address=contract_address,
+        asset_id=asset.id, quantity_raw=str(int(quantity * 10**decimals)), decimals=decimals,
+        block_number=1, updated_at=datetime.now(UTC),
+    ))
+    await db.commit()
+    return asset
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_stablecoin_treated_as_cash(db: AsyncSession) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+    await _seed_stablecoin_position(db, "USDC", 500.0)
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["cash_usd"] == pytest.approx(500.0, rel=1e-6)
+    assert result["total_usd_value"] == pytest.approx(100_500.0, rel=1e-6)
+    assert any(h["symbol"] == "USDC" for h in result["cash_holdings"])
+    # Stablecoins never enter the correlation weight list.
+    assert not any(a["symbol"] == "USDC" for a in result["assets"])
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_stock_token_applies_multiplier(db: AsyncSession) -> None:
+    """A 2:1 forward-split multiplier must double the effective share
+    count used for valuation — the raw on-chain balance alone would
+    undervalue the holding by half."""
+    await _seed_stock_token_position(db, "NVDA", quantity=10.0, price=100.0, current_multiplier=2.0)
+
+    result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
+    # 10 raw tokens * 2.0 multiplier * $100 = $2000, not $1000.
+    assert result["direct_exposure_usd"] == pytest.approx(2000.0, rel=1e-6)
+    assert result["direct_holding_for_stock"]["symbol"] == "NVDA"
+    assert result["direct_holding_for_stock"]["usd_value"] == pytest.approx(2000.0, rel=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_stock_token_no_multiplier_uses_raw_balance(db: AsyncSession) -> None:
+    await _seed_stock_token_position(db, "NVDA", quantity=10.0, price=100.0, current_multiplier=None)
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["direct_exposure_usd"] == pytest.approx(1000.0, rel=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_direct_and_synthetic_reported_separately(db: AsyncSession) -> None:
+    """A wallet holding both a stock token and crypto must never blend the
+    two into one score — direct ownership and correlation-based synthetic
+    exposure are fundamentally different things."""
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)  # $100,000 crypto
+    await _seed_stock_token_position(db, "NVDA", quantity=10.0, price=100.0)  # $1,000 direct
+    await _seed_score(db, "TSLA", "BTC", 0.5)
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["total_usd_value"] == pytest.approx(101_000.0, rel=1e-6)
+    assert result["direct_exposure_usd"] == pytest.approx(1000.0, rel=1e-6)
+    assert any(h["symbol"] == "NVDA" for h in result["direct_holdings"])
+    # BTC still drives the synthetic weight list; NVDA (direct) never does.
+    assert any(a["symbol"] == "BTC" for a in result["assets"])
+    assert not any(a["symbol"] == "NVDA" for a in result["assets"])
+    # BTC's weight is diluted by the total (crypto+direct) denominator, not
+    # just the crypto subtotal — 100000/101000, not 100000/100000.
+    btc_weight = next(a["weight"] for a in result["assets"] if a["symbol"] == "BTC")
+    assert btc_weight == pytest.approx(100_000 / 101_000, rel=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_synthex_excluded_from_all_buckets(db: AsyncSession, monkeypatch) -> None:
+    """$SynthEx is an access/entitlement token — even if it somehow shows
+    up as a cached position, it must never feed exposure math at all."""
+    import app.services.portfolio as portfolio_module
+    from app.config import Settings
+
+    synthex_address = "0x" + "5e" * 20
+    settings = Settings(synthex_token_address=synthex_address, database_url="sqlite+aiosqlite:///./test.db")
+    monkeypatch.setattr(portfolio_module, "get_settings", lambda: settings)
+
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+    eth = (await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one()
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=4663, contract_address=synthex_address,
+        asset_id=eth.id, quantity_raw=str(10**18), decimals=18,
+        block_number=1, updated_at=datetime.now(UTC),
+    ))
+    await db.commit()
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    # Only the BTC position counts — $SynthEx contributes nothing anywhere.
+    assert result["total_usd_value"] == pytest.approx(100_000.0, rel=1e-6)
 
 
 @pytest.mark.asyncio

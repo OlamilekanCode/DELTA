@@ -59,11 +59,18 @@ CURATED_ALIASES: list[CuratedAlias] = [
     CuratedAlias(ETHEREUM_CHAIN_ID, "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599", 8, "BTC"),   # WBTC (mainnet)
     CuratedAlias(BASE_CHAIN_ID, "0x4200000000000000000000000000000000000006", 18, "ETH"),      # WETH (Base predeploy)
     CuratedAlias(BASE_CHAIN_ID, "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", 8, "BTC"),         # cbBTC (Base)
+    # Stablecoins — same "confirmed by a human, never trusted from memory
+    # alone" treatment. USDG in particular (Global Dollar, a newer 2024
+    # token) has the lowest confidence of any address here.
+    CuratedAlias(ETHEREUM_CHAIN_ID, "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", 6, "USDC"),  # USDC (mainnet)
+    CuratedAlias(ETHEREUM_CHAIN_ID, "0xdac17f958d2ee523a2206206994597c13d831ec7", 6, "USDT"),  # USDT (mainnet)
+    CuratedAlias(BASE_CHAIN_ID, "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", 6, "USDC"),        # USDC (Base)
 ]
 
 
-async def _asset_by_symbol_map(db: AsyncSession, asset_type: str) -> dict[str, Asset]:
-    result = await db.execute(select(Asset).where(Asset.asset_type == asset_type))
+async def _asset_by_symbol_map(db: AsyncSession, asset_types: str | list[str]) -> dict[str, Asset]:
+    types = [asset_types] if isinstance(asset_types, str) else asset_types
+    result = await db.execute(select(Asset).where(Asset.asset_type.in_(types)))
     return {a.symbol.upper(): a for a in result.scalars().all()}
 
 
@@ -85,6 +92,7 @@ async def _upsert_contract(
     source: str,
     verified: bool,
     active: bool = True,
+    current_multiplier: float | None = None,
 ) -> bool:
     """Insert or update one row, matched on (chain_id, contract_address) —
     never on symbol. Returns True if a row was written."""
@@ -107,12 +115,14 @@ async def _upsert_contract(
         # upgrade, not something a routine sync should silently revoke.
         existing.verified = existing.verified or verified
         existing.active = active
+        existing.current_multiplier = current_multiplier
         existing.updated_at = now
     else:
         db.add(PortfolioContract(
             asset_id=asset_id, chain_id=chain_id, contract_address=contract_address,
             contract_type=contract_type, decimals=decimals, source=source,
-            verified=verified, active=active, created_at=now, updated_at=now,
+            verified=verified, active=active, current_multiplier=current_multiplier,
+            created_at=now, updated_at=now,
         ))
     return True
 
@@ -160,10 +170,10 @@ async def sync_crypto_contracts_from_coingecko(db: AsyncSession, cg: CoinGeckoPr
 
 
 async def sync_curated_aliases(db: AsyncSession) -> dict:
-    """Seed the curated wrapped-token aliases. Idempotent — re-running never
-    duplicates rows or downgrades an already-verified one."""
+    """Seed the curated wrapped-token and stablecoin aliases. Idempotent —
+    re-running never duplicates rows or downgrades an already-verified one."""
     counts = {"requested": len(CURATED_ALIASES), "matched": 0, "contracts_written": 0}
-    by_symbol = await _asset_by_symbol_map(db, "crypto")
+    by_symbol = await _asset_by_symbol_map(db, ["crypto", "stablecoin"])
     for alias in CURATED_ALIASES:
         asset = by_symbol.get(alias.canonical_symbol.upper())
         if asset is None:
@@ -205,6 +215,7 @@ async def sync_robinhood_stock_tokens(db: AsyncSession, rh: RobinhoodAssetProvid
             db, asset_id=asset.id, chain_id=token.chain_id, contract_address=token.contract_address,
             contract_type="robinhood_stock", decimals=token.decimals,
             source="robinhood", verified=True, active=token.active,
+            current_multiplier=token.current_multiplier,
         )
         counts["matched"] += 1
         counts["contracts_written"] += 1
