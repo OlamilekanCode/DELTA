@@ -70,9 +70,21 @@ def test_stocks_have_no_coingecko_id() -> None:
             assert a.get("coingecko_id") is None, f"{a['symbol']} should not have coingecko_id"
 
 
-def test_no_stablecoins() -> None:
-    symbols = {a["symbol"] for a in FIXTURE_ASSETS}
-    assert not (symbols & STABLECOINS), f"Stablecoin found: {symbols & STABLECOINS}"
+def test_no_stablecoins_categorized_as_crypto() -> None:
+    """Stablecoins are intentionally in the catalogue (asset_type
+    "stablecoin", valued flat at $1.00/unit as cash — see
+    services/portfolio.py) but must never be categorized as "crypto": that
+    would feed them into correlation scoring and the public asset explorer
+    as if they were a real crypto asset with meaningful price movement."""
+    crypto_symbols = {a["symbol"] for a in FIXTURE_ASSETS if a["asset_type"] == "crypto"}
+    assert not (crypto_symbols & STABLECOINS), f"Stablecoin categorized as crypto: {crypto_symbols & STABLECOINS}"
+
+
+def test_stablecoins_have_own_asset_type() -> None:
+    stablecoin_assets = [a for a in FIXTURE_ASSETS if a["symbol"] in STABLECOINS]
+    for a in stablecoin_assets:
+        assert a["asset_type"] == "stablecoin", f"{a['symbol']} should be asset_type 'stablecoin', got {a['asset_type']!r}"
+        assert a.get("coingecko_id") is None, f"{a['symbol']} should not have coingecko_id"
 
 
 def test_crypto_categories_valid() -> None:
@@ -95,8 +107,13 @@ def test_no_duplicate_coingecko_ids() -> None:
 
 @pytest.mark.asyncio
 async def test_fixture_provider_has_data_for_all_assets() -> None:
+    """Stablecoins are deliberately excluded — they're valued flat at
+    $1.00/unit (see services/portfolio.py) and never get daily price
+    history, fixture or otherwise."""
     provider = FixtureProvider()
     for asset in FIXTURE_ASSETS:
+        if asset["asset_type"] == "stablecoin":
+            continue
         rows = await provider.fetch_ohlcv(asset["symbol"], 90)
         assert len(rows) > 0, f"No fixture data for {asset['symbol']}"
         assert all(r.close > 0 for r in rows), f"Non-positive close for {asset['symbol']}"
