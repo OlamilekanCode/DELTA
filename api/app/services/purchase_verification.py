@@ -162,8 +162,9 @@ async def verify_purchase(
         if receipt is None:
             return {"status": "invalid", "message": "Transaction receipt not found"}
         current_block = await provider.get_block_number()
-    except RpcError as e:
-        return {"status": "rpc_error", "message": str(e)}
+    except RpcError:
+        log.exception("RPC error during purchase verification")
+        return {"status": "rpc_error", "message": "RPC error — try again shortly"}
     except Exception:  # noqa: BLE001 — any transport failure fails closed
         # Never echo the raw exception — transport errors often embed the
         # request URL verbatim, and ROBINHOOD_RPC_URL may carry an API key.
@@ -281,7 +282,14 @@ async def verify_purchase(
     else:
         return {"status": "unable_to_determine_net_spend", "message": "Could not determine ETH/WETH amount spent"}
 
-    block = await provider.get_block(receipt.block_number)
+    try:
+        block = await provider.get_block(receipt.block_number)
+    except RpcError:
+        log.exception("RPC error reading block timestamp during purchase verification")
+        return {"status": "rpc_error", "message": "RPC error — try again shortly"}
+    except Exception:  # noqa: BLE001 — any transport failure fails closed
+        log.exception("Unexpected RPC failure reading block timestamp during purchase verification")
+        return {"status": "rpc_error", "message": "Unexpected RPC failure"}
     if block is None:
         return {"status": "invalid", "message": "Could not read block timestamp"}
     block_timestamp = datetime.fromtimestamp(block.timestamp, tz=UTC)

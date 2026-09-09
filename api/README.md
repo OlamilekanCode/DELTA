@@ -50,9 +50,9 @@ alembic revision --autogenerate -m "description"
 ## Data ingestion commands
 
 ```bash
-python -m app.ingestion.commands backfill              # initial 90-day backfill, all assets
+python -m app.ingestion.commands backfill              # initial 365-day backfill, all assets (recurring refreshes stay at 90 days)
 python -m app.ingestion.commands refresh-crypto-quotes  # 1 CoinGecko batch request, all crypto
-python -m app.ingestion.commands refresh-crypto-history
+python -m app.ingestion.commands refresh-crypto-history  # no CoinGecko batch endpoint for history — one request per crypto asset, bounded concurrency
 python -m app.ingestion.commands refresh-stock-eod       # weekdays only
 python -m app.ingestion.commands refresh-intraday        # batched Marketstack + stored crypto observations
 python -m app.ingestion.commands recompute-scores

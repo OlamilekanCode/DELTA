@@ -81,9 +81,37 @@ async def refresh_wallet_balance(
     if not settings.synthex_holder_min_balance_raw:
         return BalanceRefreshResult(status="not_configured", message="Holder minimum balance is not configured yet")
 
-    provider = rpc or JsonRpcProvider(settings.robinhood_rpc_url)
     wallet_lower = wallet_address.lower()
     token_lower = settings.synthex_token_address.lower()
+
+    existing_result = await db.execute(
+        select(CachedWalletBalance).where(
+            CachedWalletBalance.wallet_address == wallet_lower,
+            CachedWalletBalance.token_address == token_lower,
+        )
+    )
+    existing = existing_result.scalar_one_or_none()
+
+    now = datetime.now(UTC)
+    if existing is not None:
+        checked_at = (
+            existing.checked_at if existing.checked_at.tzinfo is not None
+            else existing.checked_at.replace(tzinfo=UTC)
+        )
+        if now - checked_at < REFRESH_MIN_INTERVAL:
+            # An authenticated user can call /entitlements/refresh repeatedly
+            # — without this, every call would hit the RPC provider again,
+            # letting a client trigger unbounded RPC spend. Serve the still-
+            # fresh cached result instead of making another provider call.
+            return BalanceRefreshResult(
+                status="ok",
+                balance_raw=existing.balance_raw,
+                is_holder=existing.is_holder,
+                block_number=existing.checked_block_number,
+                message="Using cached balance — refreshed within the last 5 minutes",
+            )
+
+    provider = rpc or JsonRpcProvider(settings.robinhood_rpc_url)
 
     try:
         chain_id = await provider.get_chain_id()
@@ -94,8 +122,9 @@ async def refresh_wallet_balance(
             )
         balance_raw_int = await provider.get_erc20_balance(token_lower, wallet_lower)
         block_number = await provider.get_block_number()
-    except RpcError as e:
-        return BalanceRefreshResult(status="rpc_error", message=str(e))
+    except RpcError:
+        log.exception("RPC error refreshing wallet balance")
+        return BalanceRefreshResult(status="rpc_error", message="RPC error — try again shortly")
     except Exception:  # noqa: BLE001 — any unexpected RPC/transport failure fails closed, never crashes the request
         # Never echo the raw exception — transport errors often embed the
         # request URL verbatim, and ROBINHOOD_RPC_URL may carry an API key.
@@ -105,15 +134,7 @@ async def refresh_wallet_balance(
     # Integer comparison only — token balances are never represented as float.
     min_balance_raw_int = int(settings.synthex_holder_min_balance_raw)
     is_holder = balance_raw_int >= min_balance_raw_int
-    now = datetime.now(UTC)
 
-    existing_result = await db.execute(
-        select(CachedWalletBalance).where(
-            CachedWalletBalance.wallet_address == wallet_lower,
-            CachedWalletBalance.token_address == token_lower,
-        )
-    )
-    existing = existing_result.scalar_one_or_none()
     if existing is not None:
         existing.balance_raw = str(balance_raw_int)
         existing.checked_at = now

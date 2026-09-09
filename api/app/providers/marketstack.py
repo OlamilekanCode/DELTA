@@ -73,21 +73,22 @@ class MarketstackProvider:
 
         return rows[-days:]
 
+    # Marketstack's /eod `limit` parameter has a hard ceiling of 1000 rows
+    # per call — requesting more silently truncates the response rather than
+    # erroring. (days + 10) rows/symbol * len(symbols) can exceed that for a
+    # large symbol list (e.g. 90-day history * 20 stocks = 2000), so batches
+    # are chunked to stay under it rather than requested in one shot.
+    _MAX_ROWS_PER_CALL = 1000
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=30),
         retry=retry_if_exception_type((ProviderError, httpx.TransportError)),
         reraise=True,
     )
-    async def fetch_eod_batch(self, symbols: list[str], days: int) -> dict[str, list[PriceRow]]:
-        """Fetch EOD prices for multiple symbols in one API call.
-
-        Note: Marketstack free plan counts each symbol in the batch as a separate request.
-        Callers should be aware this may consume one request per symbol on the free tier.
-        """
-        log_provider_call("marketstack", "eod_batch", symbols=len(symbols), days=days)
-        date_to = date.today()
-        date_from = date_to - timedelta(days=days + 5)
+    async def _fetch_eod_chunk(
+        self, symbols: list[str], date_from: date, date_to: date, days: int
+    ) -> dict[str, list[PriceRow]]:
         symbols_str = ",".join(s.upper() for s in symbols)
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -124,6 +125,26 @@ class MarketstackProvider:
                 )
 
         return {sym: rows[-days:] for sym, rows in by_symbol.items()}
+
+    async def fetch_eod_batch(self, symbols: list[str], days: int) -> dict[str, list[PriceRow]]:
+        """Fetch EOD prices for multiple symbols, chunked so no single call's
+        `limit` can exceed Marketstack's 1000-row ceiling.
+
+        Note: Marketstack free plan counts each symbol in the batch as a separate request.
+        Callers should be aware this may consume one request per symbol on the free tier.
+        """
+        log_provider_call("marketstack", "eod_batch", symbols=len(symbols), days=days)
+        date_to = date.today()
+        date_from = date_to - timedelta(days=days + 5)
+
+        rows_per_symbol = days + 10
+        chunk_size = max(1, self._MAX_ROWS_PER_CALL // rows_per_symbol)
+
+        by_symbol: dict[str, list[PriceRow]] = {}
+        for i in range(0, len(symbols), chunk_size):
+            chunk = symbols[i : i + chunk_size]
+            by_symbol.update(await self._fetch_eod_chunk(chunk, date_from, date_to, days))
+        return by_symbol
 
     @retry(
         stop=stop_after_attempt(3),

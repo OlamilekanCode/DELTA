@@ -26,6 +26,17 @@ function formatTime(iso: string): string {
 }
 
 function FreshnessPill({ result }: { result: ApiIntradayResult }) {
+  // "collecting_data" (either the status itself, or freshness reported as
+  // such for a ready-but-just-computed pair) must never render as the
+  // green "Live" pill — there isn't a live score to be live yet.
+  if (result.status === "collecting_data" || result.freshness === "collecting_data") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.09] bg-panel2 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-muted">
+        <span className="size-1.5 rounded-full bg-muted" aria-hidden="true" />
+        Collecting data
+      </span>
+    );
+  }
   if (result.freshness === "market_closed") {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-full border border-blue/40 bg-blue/10 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-blue">

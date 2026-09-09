@@ -12,6 +12,7 @@ from app.models.price import DailyPrice
 from app.models.quote import AssetQuote
 from app.schemas.asset import AssetHistoryOut, AssetHistoryPoint, AssetListOut, AssetOut
 from app.services.access import free_only_clause, get_access_context, require_asset_access
+from app.services.intraday import BUCKET_MINUTES, floor_to_bucket
 from app.services.market_calendar import recent_session_dates, session_open_close
 
 router = APIRouter()
@@ -25,7 +26,6 @@ _INTRADAY_STOCK_SESSIONS: dict[str, int] = {"4H": 1, "1D": 1, "1W": 5, "1M": 20}
 _INTRADAY_STOCK_TAIL_BUCKETS: dict[str, int | None] = {"4H": 8, "1D": None, "1W": None, "1M": None}
 _INTRADAY_CRYPTO_HOURS: dict[str, float] = {"4H": 4, "1D": 24, "1W": 24 * 7, "1M": 24 * 30}
 _BUCKETS_PER_SESSION = 13  # 6.5h session / 30-minute buckets
-_BUCKETS_PER_HOUR = 2  # 30-minute buckets
 
 # Range -> days of daily history to return.
 _DAILY_RANGE_DAYS: dict[str, int] = {
@@ -249,13 +249,23 @@ def _intraday_window_start(asset: Asset, range_key: str, now: datetime) -> datet
     return now - timedelta(hours=hours)
 
 
-def _expected_intraday_count(asset: Asset, range_key: str) -> int:
+def _expected_intraday_count(asset: Asset, range_key: str, window_start: datetime, now: datetime) -> int:
     if asset.asset_type == "stock":
         tail = _INTRADAY_STOCK_TAIL_BUCKETS[range_key]
         if tail is not None:
             return tail
         return _INTRADAY_STOCK_SESSIONS[range_key] * _BUCKETS_PER_SESSION
-    return int(_INTRADAY_CRYPTO_HOURS[range_key] * _BUCKETS_PER_HOUR)
+    # Crypto rolls continuously, so "now" always sits inside a still-open
+    # bucket that never appears in the DB (candles are only ever written
+    # once complete). Counting hours*2 as "expected" would therefore
+    # permanently read one bucket short (e.g. 47/48) even with a fully
+    # populated window — expected must be the count of buckets that have
+    # actually had a chance to close by "now".
+    latest_completed_bucket_start = floor_to_bucket(now) - timedelta(minutes=BUCKET_MINUTES)
+    if latest_completed_bucket_start < window_start:
+        return 0
+    span_minutes = (latest_completed_bucket_start - window_start).total_seconds() / 60
+    return int(span_minutes // BUCKET_MINUTES) + 1
 
 
 async def _asset_history_intraday(db: AsyncSession, asset: Asset, range_key: str) -> AssetHistoryOut:
@@ -287,7 +297,7 @@ async def _asset_history_intraday(db: AsyncSession, asset: Asset, range_key: str
 
     provider = "fixture" if is_demo else ("coingecko" if asset.asset_type == "crypto" else "marketstack")
 
-    expected = _expected_intraday_count(asset, range_key)
+    expected = _expected_intraday_count(asset, range_key, window_start, now)
     point_count = len(rows)
     completeness = min(1.0, point_count / expected) if expected else None
 

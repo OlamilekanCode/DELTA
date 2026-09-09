@@ -219,6 +219,11 @@ interface PortfolioExposureResponse {
   category_exposure?: { category: string; weight: number }[];
   coming_soon?: string[];
   data_ts?: string | null;
+  positions_stale?: boolean;
+  quotes_stale?: boolean;
+  total_usd_value?: number;
+  supported_position_count?: number;
+  excluded_position_count?: number;
 }
 
 interface PortfolioRefreshResponse {
@@ -411,14 +416,18 @@ function PortfolioDetail({
   const queryClient = useQueryClient();
   const [selectedStock, setSelectedStock] = useState("");
 
-  const { data: exposure } = useQuery({
+  const { data: exposure, error: exposureError } = useQuery({
     queryKey: ["portfolio-exposure", selectedStock],
     queryFn: async () => {
       const qs = selectedStock ? `?stock=${encodeURIComponent(selectedStock)}` : "";
       const res = await fetch(`/api/portfolio/exposure${qs}`, { cache: "no-store" });
-      if (!res.ok) return null;
+      // A failed request is a real backend/network error, not an empty
+      // portfolio — throwing here keeps it out of the "no positions yet"
+      // empty state so it surfaces distinctly instead of being hidden.
+      if (!res.ok) throw new Error(`portfolio exposure request failed (${res.status})`);
       return res.json() as Promise<PortfolioExposureResponse>;
     },
+    retry: 1,
   });
 
   const topRanked = exposure?.ranked?.[0] ?? null;
@@ -469,15 +478,30 @@ function PortfolioDetail({
         <p className="mt-2 font-heading text-4xl font-bold text-text">
           {headlineScore != null ? formatScore(headlineScore) : "—"}
         </p>
-        <p className="mt-3 max-w-md font-mono text-xs text-muted">
-          {exposure?.note ??
-            (hasPositions
-              ? "Signed correlation between your wallet's crypto holdings and the listed stock, weighted by portfolio share."
-              : "No wallet positions found yet — refresh your wallet to read current on-chain holdings.")}
+        <p className={`mt-3 max-w-md font-mono text-xs ${exposureError ? "text-red-400" : "text-muted"}`}>
+          {exposureError
+            ? "Couldn't load portfolio exposure — try again shortly."
+            : (exposure?.note ??
+              (hasPositions
+                ? "Signed correlation between your wallet's crypto holdings and the listed stock, weighted by portfolio share."
+                : "No wallet positions found yet — refresh your wallet to read current on-chain holdings."))}
         </p>
         {!showDetailed && exposure?.stocks_covered != null && exposure.stocks_covered > 0 && (
           <p className="mt-2 font-mono text-[11px] text-muted/70">
             Averaged across {exposure.stocks_covered} stock{exposure.stocks_covered === 1 ? "" : "s"} with exposure data.
+          </p>
+        )}
+        {(exposure?.positions_stale || exposure?.quotes_stale) && (
+          <p className="mt-2 font-mono text-[11px] text-amber">
+            {exposure.positions_stale ? "Wallet positions may be stale — refresh wallet assets. " : ""}
+            {exposure.quotes_stale ? "Prices may be stale." : ""}
+          </p>
+        )}
+        {exposure?.total_usd_value != null && exposure.total_usd_value > 0 && (
+          <p className="mt-1 font-mono text-[11px] text-muted/60">
+            Based on {exposure.supported_position_count ?? 0} supported position
+            {(exposure.supported_position_count ?? 0) === 1 ? "" : "s"} · ${exposure.total_usd_value.toFixed(2)} valued
+            {exposure.excluded_position_count ? ` · ${exposure.excluded_position_count} excluded` : ""}
           </p>
         )}
       </div>

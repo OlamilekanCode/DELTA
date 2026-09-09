@@ -9,6 +9,7 @@
 
 import re
 from datetime import date, timedelta
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from sqlalchemy import func, select
@@ -19,6 +20,7 @@ from app.ingestion import commands as commands_module
 from app.ingestion.commands import cmd_refresh_crypto_history, cmd_refresh_stock_eod
 from app.models.asset import Asset
 from app.models.price import DailyPrice
+from app.providers.marketstack import MarketstackProvider
 
 
 def _live_settings(**overrides) -> Settings:
@@ -82,6 +84,42 @@ async def test_cmd_refresh_stock_eod_preserves_data_on_batch_failure(db: AsyncSe
     assert price_count_after == price_count_before  # existing data untouched
     assert counts["succeeded"] == 0
     assert counts["failed"] == counts["requested"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_eod_batch_chunks_to_stay_under_marketstack_row_limit(httpx_mock) -> None:
+    """20 symbols * 90-day window would need limit=2000 in one call —
+    Marketstack's /eod `limit` caps at 1000 and silently truncates beyond
+    it, so this must split into multiple calls that each stay under 1000."""
+    provider = MarketstackProvider("ms-key")
+    symbols = [f"SYM{i}" for i in range(20)]
+    as_of = date.today()
+
+    def _handle(request):
+        qs = parse_qs(urlparse(str(request.url)).query)
+        requested_symbols = qs["symbols"][0].split(",")
+        assert int(qs["limit"][0]) <= 1000
+        from httpx import Response
+        return Response(
+            200,
+            json={
+                "data": [
+                    {"symbol": sym, "date": (as_of - timedelta(days=i)).isoformat(), "close": 100.0 + i, "adj_close": 100.0 + i}
+                    for sym in requested_symbols
+                    for i in range(3)
+                ]
+            },
+        )
+
+    httpx_mock.add_callback(_handle, url=re.compile(r"https://api\.marketstack\.com/v1/eod.*"))
+
+    result = await provider.fetch_eod_batch(symbols, days=90)
+
+    requests = [r for r in httpx_mock.get_requests() if "marketstack" in str(r.url)]
+    assert len(requests) > 1  # split into multiple sub-1000 chunks
+    assert set(result.keys()) == set(symbols)  # every symbol present, none dropped by chunking
+    for sym in symbols:
+        assert len(result[sym]) == 3
 
 
 @pytest.mark.asyncio

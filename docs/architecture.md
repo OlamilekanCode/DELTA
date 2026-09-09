@@ -77,7 +77,7 @@ SQLite (dev/test) creates tables directly at startup since there's no separate m
 | Table | Purpose |
 |-------|---------|
 | `assets` | Asset catalogue — 20 stocks + 100 crypto, each with an `access: "free" \| "holder"` field |
-| `daily_prices` | Historical daily close prices per asset, 90-day depth |
+| `daily_prices` | Historical daily close prices per asset — 365 days from the one-time backfill, never pruned by the recurring 90-day refresh |
 | `asset_quotes` | Latest crypto price snapshot, one row per crypto asset |
 | `crypto_quote_observations` | Timestamped 5-minute crypto price samples used to build 30-min candles (7-day retention) |
 | `intraday_prices` | 30-minute OHLC candles per asset (~90-day retention) |
@@ -138,7 +138,7 @@ Three distinct Cloudflare Cron Trigger schedules dispatch to protected `/api/v1/
 |----------|----------|---------|
 | `*/5 * * * *` | `refresh-crypto-quotes` | One CoinGecko batch call for every crypto asset; also persists 5-min observations |
 | `2,32 * * * *` | `refresh-intraday` | One batched Marketstack call for every stock; crypto candles built from stored observations (zero CoinGecko calls); recomputes live scores |
-| `0 23 * * 2,5` | `refresh-history-and-scores` | Stock EOD, crypto history, historical score recompute, and retention/auth cleanup |
+| `0 23 * * 2,5` | `refresh-history-and-scores` | Stock EOD (one batched Marketstack call, chunked under its 1000-row limit), crypto history (no CoinGecko batch endpoint exists for historical OHLCV — one request per crypto asset, bounded concurrency), historical score recompute, and retention/auth cleanup |
 
 The quote and history jobs share a PostgreSQL advisory lock (no-op on SQLite); intraday uses its own lock so it never queues behind the others. A job that fails entirely (every provider call failed) returns a non-2xx status — the worker never treats that as a silent success.
 

@@ -292,7 +292,13 @@ async def compute_portfolio_exposure(
     weights: list[tuple[Asset, Decimal]] = []
     total_usd = Decimal(0)
     valued: list[tuple[Asset, Decimal]] = []
-    data_ts = max((p.updated_at for p in positions), default=None)
+    # The portfolio-level snapshot is only as fresh as its stalest
+    # constituent position — using the newest position's timestamp would
+    # let one freshly-refreshed holding mask every other position being
+    # long out of date, so both the displayed data_ts and the staleness
+    # check use the OLDEST position timestamp (same convention as
+    # oldest_quote_ts below).
+    data_ts = min((p.updated_at for p in positions), default=None)
     data_ts_aware = data_ts if (data_ts is None or data_ts.tzinfo is not None) else data_ts.replace(tzinfo=UTC)
     positions_stale = data_ts_aware is None or (datetime.now(UTC) - data_ts_aware) > POSITIONS_STALE_AFTER
 

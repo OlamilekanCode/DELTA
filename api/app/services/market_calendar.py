@@ -64,11 +64,20 @@ def get_market_status(now: datetime | None = None) -> MarketStatus:
 
 
 def recent_session_dates(now: datetime | None = None, count: int = 20) -> list[date]:
-    """The most recent `count` completed-or-in-progress trading session dates, oldest first."""
+    """The most recent `count` completed-or-in-progress trading session dates, oldest first.
+
+    "Recent" means already started — never a session whose open is still in
+    the future. `sessions_in_range` only checks calendar dates, so on a
+    trading day before the session opens (e.g. 6am ET) it would otherwise
+    include today even though the market hasn't opened yet.
+    """
     ts = pd.Timestamp(now or datetime.now(UTC))
-    normalized = (ts.tz_convert(None) if ts.tzinfo else ts).normalize()
+    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    normalized = ts.tz_convert(None).normalize()
     start = normalized - pd.Timedelta(days=count * 3)  # buffer for weekends/holidays
     sessions = _calendar.sessions_in_range(start, normalized)
+    if len(sessions) and sessions[-1].normalize() == normalized and ts < _calendar.session_open(sessions[-1]):
+        sessions = sessions[:-1]
     return [s.date() for s in sessions[-count:]]
 
 

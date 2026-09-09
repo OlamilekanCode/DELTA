@@ -96,5 +96,13 @@ def intraday_status(data_ts: datetime | None, now: datetime | None = None) -> st
     if status.current_bucket is None:
         return "collecting_data"
     last_completed_bucket = status.current_bucket - timedelta(minutes=30)
-    deadline = last_completed_bucket - timedelta(minutes=_INTRADAY_GRACE_MINUTES)
+    # The grace window starts when the bucket actually closes (at
+    # status.current_bucket, the instant the new bucket began), not 10
+    # minutes before it. Subtracting the grace from last_completed_bucket
+    # instead made the deadline a fixed 20 minutes before the completed
+    # bucket regardless of how much time had actually passed since it
+    # closed — so a score still reflecting the *previous* bucket read as
+    # stale the instant a new bucket closed, before any grace had elapsed.
+    grace_expires_at = status.current_bucket + timedelta(minutes=_INTRADAY_GRACE_MINUTES)
+    deadline = last_completed_bucket if now >= grace_expires_at else last_completed_bucket - timedelta(minutes=30)
     return "fresh" if _aware(data_ts) >= deadline else "stale"

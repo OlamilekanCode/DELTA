@@ -243,7 +243,7 @@ async def seed_fixture_intraday_data(db: AsyncSession) -> None:
     assets = list(assets_result.scalars().all())
 
     for asset in assets:
-        observations = await provider.fetch_intraday(asset.symbol)
+        observations = await provider.fetch_intraday(asset.symbol, asset.asset_type)
         candles = build_30min_candles(observations)
         await ingest_intraday_candles(db, asset.id, candles, provider="fixture", is_demo=True)
     await db.commit()

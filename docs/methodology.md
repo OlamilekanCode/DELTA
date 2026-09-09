@@ -86,8 +86,9 @@ When `USE_DEMO_DATA=true`, deterministic fixture data is used and no external pr
 
 | Data | Frequency | Cloudflare job |
 |------|-----------|----------------|
-| Crypto current price + 5-min observation | Every 5 minutes | Quote scheduler |
-| 30-minute stock + crypto candles, live Exposure Scores | After each completed 30-min market bucket (market hours only, plus the final closing bucket) | Intraday scheduler |
+| Crypto current price + 5-min observation | Every 5 minutes, 24/7 | Quote scheduler |
+| 30-minute crypto candles | Every completed 30-min bucket, 24/7 — built from stored observations regardless of US market state | Intraday scheduler |
+| 30-minute stock candles, live Exposure Scores | After each completed 30-min market bucket, market hours only (plus the final closing bucket) | Intraday scheduler |
 | Stock EOD, crypto daily history, historical Exposure Scores, retention cleanup | Tuesday and Friday after market close | Historical scheduler |
 
 Both historical and live scores are pre-computed and stored. Neither is ever calculated during a user page request.

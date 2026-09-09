@@ -61,9 +61,9 @@ With `USE_DEMO_DATA=true` (the default), the API seeds deterministic fixture dat
 ### Data ingestion
 
 ```bash
-python -m app.ingestion.commands backfill              # seed/backfill 90 days of history
+python -m app.ingestion.commands backfill              # one-time seed/backfill of 365 days of daily history
 python -m app.ingestion.commands refresh-crypto-quotes  # 1 batch CoinGecko request, all crypto
-python -m app.ingestion.commands refresh-crypto-history
+python -m app.ingestion.commands refresh-crypto-history  # no CoinGecko batch endpoint for history — one request per crypto asset, bounded concurrency
 python -m app.ingestion.commands refresh-stock-eod       # weekdays only
 python -m app.ingestion.commands refresh-intraday        # batched Marketstack + stored crypto observations
 python -m app.ingestion.commands recompute-scores

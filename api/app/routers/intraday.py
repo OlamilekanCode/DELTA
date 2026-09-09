@@ -113,7 +113,10 @@ async def get_intraday(
     crypto_by_id = {a.id: a for a in crypto_result.scalars().all()}
 
     is_demo = any(s.is_demo for s in ready_rows)
-    data_ts = max((s.data_ts for s in ready_rows), default=None)
+    # Freshness must reflect the STALEST ready pair, not the newest — one
+    # recently-recomputed pair must not make the whole stock's live-score
+    # panel read as "fresh" while other listed pairs are actually stale.
+    data_ts = min((s.data_ts for s in ready_rows), default=None)
     freshness = intraday_status(data_ts)
 
     scores = [
