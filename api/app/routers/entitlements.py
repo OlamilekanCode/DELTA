@@ -69,6 +69,14 @@ async def entitlements_status(
             if balance_row else None
         ),
         "synthex_balance_checked_at": balance_row.checked_at.isoformat() if balance_row else None,
+        # The holder minimum — needed so the frontend can show "required vs
+        # current balance" on the insufficient-balance state instead of a
+        # bare message. Null (never a fabricated number) until configured.
+        "synthex_required_balance_raw": settings.synthex_holder_min_balance_raw or None,
+        "synthex_required_balance": (
+            _format_balance(settings.synthex_holder_min_balance_raw, settings.synthex_token_decimals)
+            if settings.synthex_holder_min_balance_raw else None
+        ),
     }
 
 

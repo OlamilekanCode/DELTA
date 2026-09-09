@@ -118,6 +118,13 @@ export interface ApiGraphResult {
   edges: ApiGraphEdge[];
   demo: boolean;
   computed_at: string | null;
+  interval: "historical" | "live";
+  status: "ready" | "collecting_data";
+  current_count: number | null;
+  required_count: number | null;
+  estimated_ready: string | null;
+  freshness: "fresh" | "stale" | "collecting_data" | "market_closed" | null;
+  market_is_open: boolean | null;
 }
 
 export interface ApiIntradayScore {

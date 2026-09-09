@@ -50,6 +50,14 @@ class RpcProvider(Protocol):
     async def get_transaction_receipt(self, tx_hash: str) -> TransactionReceipt | None: ...
     async def get_block(self, block_number: int) -> BlockData | None: ...
 
+    async def eth_call(self, to: str, data: str) -> str:
+        """Raw `eth_call`, returned as the hex result string. Used by
+        services/wallet_reader.py to batch balance reads through a
+        Multicall3 contract — the higher-level get_erc20_balance stays the
+        simple single-token path used elsewhere (purchase verification's
+        WETH checks don't need batching)."""
+        ...
+
 
 def _pad_address(address: str) -> str:
     return address.lower().replace("0x", "").rjust(64, "0")
@@ -126,6 +134,10 @@ class JsonRpcProvider:
             return None
         return BlockData(number=_hex_to_int(result["number"]), timestamp=_hex_to_int(result["timestamp"]))
 
+    async def eth_call(self, to: str, data: str) -> str:
+        result = await self._call("eth_call", [{"to": to, "data": data}, "latest"])
+        return result if isinstance(result, str) else "0x"
+
 
 class MockRpcProvider:
     """In-memory RPC double for tests and local development without a real
@@ -141,9 +153,13 @@ class MockRpcProvider:
         receipts: dict[str, TransactionReceipt] | None = None,
         blocks: dict[int, BlockData] | None = None,
         raise_on_call: Exception | None = None,
+        raw_eth_call_responses: dict[tuple[str, str], str] | None = None,
     ) -> None:
         self.chain_id = chain_id
         self.block_number = block_number
+        self.raw_eth_call_responses = {
+            (k[0].lower(), k[1].lower()): v for k, v in (raw_eth_call_responses or {}).items()
+        }
         self.balances = balances or {}
         self.native_balances = native_balances or {}
         self.transactions = transactions or {}
@@ -182,3 +198,48 @@ class MockRpcProvider:
     async def get_block(self, block_number: int) -> BlockData | None:
         self._maybe_raise()
         return self.blocks.get(block_number)
+
+    async def eth_call(self, to: str, data: str) -> str:
+        """Test double for `eth_call`. If `raw_eth_call_responses` has an
+        exact (to, data) match, returns that verbatim (for precise
+        low-level tests). Otherwise, if the call looks like a Multicall3
+        aggregate3 request, decodes it and synthesizes a realistic
+        aggregate3 response from `self.balances` — so higher-level tests
+        can keep using the same balances= ergonomics as get_erc20_balance
+        without hand-building ABI-encoded responses."""
+        self._maybe_raise()
+        key = (to.lower(), data.lower())
+        if key in self.raw_eth_call_responses:
+            return self.raw_eth_call_responses[key]
+
+        from app.services.multicall import decode_aggregate3_calldata, decode_balance_of_calldata
+
+        try:
+            calls = decode_aggregate3_calldata(data)
+        except (ValueError, IndexError):
+            return "0x"
+
+        results: list[tuple[bool, int]] = []
+        for target, _allow_failure, call_data in calls:
+            if call_data[:4].hex() != "70a08231":  # not balanceOf — unsupported in the mock
+                results.append((False, 0))
+                continue
+            wallet = decode_balance_of_calldata(call_data)
+            balance = self.balances.get((target.lower(), wallet.lower()))
+            if balance is None:
+                results.append((False, 0))
+            else:
+                results.append((True, balance))
+
+        # Re-encode using the same fixed-size-tuple layout as the real
+        # contract would return for a batch of balanceOf(uint256) results.
+        n = len(results)
+        head = b"".join(((n * 32) + i * 128).to_bytes(32, "big") for i in range(n))
+        tail = b"".join(
+            (1 if success else 0).to_bytes(32, "big") + (64).to_bytes(32, "big")
+            + (32).to_bytes(32, "big") + value.to_bytes(32, "big")
+            for success, value in results
+        )
+        array_data = n.to_bytes(32, "big") + head + tail
+        body = (32).to_bytes(32, "big") + array_data
+        return "0x" + body.hex()

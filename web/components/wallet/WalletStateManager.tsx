@@ -34,6 +34,7 @@ interface EntitlementsStatus {
   is_holder: boolean;
   synthex_balance: string | null;
   synthex_balance_checked_at: string | null;
+  synthex_required_balance: string | null;
 }
 
 interface WalletStateContextValue {

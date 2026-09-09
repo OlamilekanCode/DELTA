@@ -147,3 +147,40 @@ class CoinGeckoProvider:
                 price=round(price, 8),
             ))
         return observations
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception_type((ProviderError, httpx.TransportError)),
+        reraise=True,
+    )
+    async def fetch_coins_list_with_platforms(self) -> list[dict]:
+        """ONE call covering every coin CoinGecko tracks, each with its
+        per-chain contract addresses (`platforms`). Used only by the
+        portfolio catalogue sync to resolve verified Ethereum/Base contract
+        addresses for our own already-tracked crypto assets — never to
+        discover new assets. Response items: {"id", "symbol", "name",
+        "platforms": {"ethereum": "0x...", "base": "0x...", ...}}.
+
+        No decimals field is present here — CoinGecko doesn't include
+        per-platform decimals on this endpoint, only on the much heavier
+        per-coin /coins/{id} endpoint. Callers default to the ERC-20
+        convention (18) and should treat that as a documented
+        simplification, not a verified value, until reconfirmed on-chain.
+        """
+        log_provider_call("coingecko", "coins_list_platforms", coins=0)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(
+                f"{self.base}/coins/list",
+                params={"include_platform": "true"},
+                headers=self._headers,
+            )
+
+        if r.status_code == 429:
+            raise ProviderError(429, "CoinGecko rate limited on coins list")
+
+        if r.status_code != 200:
+            raise ProviderError(r.status_code, f"CoinGecko coins list error {r.status_code}")
+
+        data = r.json()
+        return data if isinstance(data, list) else []
