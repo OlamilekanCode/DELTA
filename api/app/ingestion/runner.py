@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.database import get_engine, get_factory, init_db
+from app.ingestion.errors import MissingProviderKeysError
 from app.models.asset import Asset
 from app.models.price import DailyPrice
 from app.models.quote import AssetQuote
@@ -28,12 +29,14 @@ def _get_provider(asset_type: str, settings: Settings) -> ProviderProtocol:
         return FixtureProvider()
     if asset_type == "stock":
         if not settings.marketstack_api_key:
-            log.error("MARKETSTACK_API_KEY is required when USE_DEMO_DATA=false")
-            sys.exit(1)
+            message = "MARKETSTACK_API_KEY is required when USE_DEMO_DATA=false"
+            log.error(message)
+            raise MissingProviderKeysError(message)
         return MarketstackProvider(settings.marketstack_api_key)
     if not settings.coingecko_api_key:
-        log.error("COINGECKO_API_KEY is required when USE_DEMO_DATA=false")
-        sys.exit(1)
+        message = "COINGECKO_API_KEY is required when USE_DEMO_DATA=false"
+        log.error(message)
+        raise MissingProviderKeysError(message)
     return CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
 
 
@@ -272,7 +275,7 @@ async def main() -> None:
         if missing:
             for key in missing:
                 log.error("ERROR: %s is required when USE_DEMO_DATA=false", key)
-            sys.exit(1)
+            raise MissingProviderKeysError(f"Missing required provider key(s): {', '.join(missing)}")
     init_db(settings.database_url)
     try:
         async with get_factory()() as db:
@@ -294,4 +297,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except MissingProviderKeysError:
+        sys.exit(1)

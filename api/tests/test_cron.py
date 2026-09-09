@@ -85,10 +85,11 @@ async def test_cron_history_includes_cleanup_counts(client: AsyncClient, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_cron_history_skips_recompute_when_stock_totally_fails(client: AsyncClient, monkeypatch) -> None:
+async def test_cron_history_returns_502_when_stock_side_totally_fails(client: AsyncClient, monkeypatch) -> None:
     """Crypto history can refresh fine while Marketstack is completely down —
     that must never recompute scores from fresh crypto against stale stock
-    prices."""
+    prices, and must be reported as a genuine failure on its own (not
+    silently 200 just because crypto succeeded)."""
     import app.routers.cron as cron_module
 
     async def fake_stock(**kwargs) -> dict:
@@ -105,12 +106,37 @@ async def test_cron_history_skips_recompute_when_stock_totally_fails(client: Asy
     monkeypatch.setattr(cron_module, "cmd_recompute_scores", fail_if_called)
 
     resp = await client.post("/api/v1/cron/refresh-history-and-scores", headers={"x-cron-secret": _SECRET})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["ok"] is True
-    assert body["scores_written"] is None
-    assert body["scores_skipped_reason"] == "stock_eod_failed"
-    assert "cleanup" in body  # cleanup still ran despite the skipped recompute
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail["failed_side"] == "stock_eod"
+    assert detail["scores_skipped_reason"] == "stock_eod_failed"
+    assert "cleanup" in detail  # cleanup still ran despite the failure
+
+
+@pytest.mark.asyncio
+async def test_cron_history_returns_502_when_crypto_side_totally_fails(client: AsyncClient, monkeypatch) -> None:
+    """The same must hold when crypto (not stock) is the side that's
+    completely down — do not require both sides to fail."""
+    import app.routers.cron as cron_module
+
+    async def fake_stock(**kwargs) -> dict:
+        return dict(_DEMO_SKIPPED_COUNTS)
+
+    async def fake_crypto() -> dict:
+        return dict(_FULLY_FAILED_COUNTS)
+
+    async def fail_if_called() -> int:
+        raise AssertionError("cmd_recompute_scores must not be called when crypto ingestion totally failed")
+
+    monkeypatch.setattr(cron_module, "cmd_refresh_stock_eod", fake_stock)
+    monkeypatch.setattr(cron_module, "cmd_refresh_crypto_history", fake_crypto)
+    monkeypatch.setattr(cron_module, "cmd_recompute_scores", fail_if_called)
+
+    resp = await client.post("/api/v1/cron/refresh-history-and-scores", headers={"x-cron-secret": _SECRET})
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail["failed_side"] == "crypto_history"
+    assert detail["scores_skipped_reason"] == "crypto_history_failed"
 
 
 @pytest.mark.asyncio
@@ -128,7 +154,9 @@ async def test_cron_history_returns_502_when_both_sides_totally_fail(client: Asy
 
     resp = await client.post("/api/v1/cron/refresh-history-and-scores", headers={"x-cron-secret": _SECRET})
     assert resp.status_code == 502
-    assert "cleanup" in resp.json()["detail"]  # cleanup still ran and is visible even on hard failure
+    detail = resp.json()["detail"]
+    assert detail["failed_side"] == "stock_eod_and_crypto_history"
+    assert "cleanup" in detail  # cleanup still ran and is visible even on hard failure
 
 
 @pytest.mark.asyncio

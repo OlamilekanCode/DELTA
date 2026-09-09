@@ -139,11 +139,24 @@ async def trigger_refresh_history_and_scores(
             detail={"command": "refresh-history-and-scores", "error": "internal_error"},
         ) from None
 
-    if stock_failed and crypto_failed:
+    # Either side completely failing is a genuine job failure on its own —
+    # partial per-asset failures (some symbols failed, most succeeded) are
+    # not, and still return 200 with the failure count visible. Requiring
+    # BOTH sides to fail before signaling an error would let a fully-dead
+    # provider on one side look like success just because the other side
+    # was fine.
+    if stock_failed or crypto_failed:
+        failed_side = (
+            "stock_eod_and_crypto_history" if (stock_failed and crypto_failed)
+            else "stock_eod" if stock_failed
+            else "crypto_history"
+        )
         raise HTTPException(
             status_code=502,
             detail={
                 "command": "refresh-history-and-scores",
+                "failed_side": failed_side,
+                "scores_skipped_reason": scores_skipped_reason,
                 "stock_eod": stock_counts,
                 "crypto_history": crypto_counts,
                 "cleanup": cleanup_counts,
@@ -155,7 +168,6 @@ async def trigger_refresh_history_and_scores(
         "stock_eod": stock_counts,
         "crypto_history": crypto_counts,
         "scores_written": scores_written,
-        "scores_skipped_reason": scores_skipped_reason,
         "cleanup": cleanup_counts,
     }
 

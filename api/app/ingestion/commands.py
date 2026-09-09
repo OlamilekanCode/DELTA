@@ -25,6 +25,7 @@ from sqlalchemy import delete, select
 
 from app.config import get_settings
 from app.database import get_engine, get_factory, init_db
+from app.ingestion.errors import MissingProviderKeysError
 from app.ingestion.runner import _upsert_quote, ingest_asset, seed_asset_catalogue
 from app.models.asset import Asset
 from app.models.crypto_observation import CryptoQuoteObservation
@@ -60,9 +61,9 @@ def _require_keys(settings) -> None:
         ] if not v
     ]
     if missing:
-        for k in missing:
-            log.error("ERROR: %s is required when USE_DEMO_DATA=false", k)
-        sys.exit(1)
+        message = f"Missing required provider key(s): {', '.join(missing)} (required when USE_DEMO_DATA=false)"
+        log.error(message)
+        raise MissingProviderKeysError(message)
 
 
 async def cmd_backfill() -> None:
@@ -464,7 +465,10 @@ def main() -> None:
     if not _try_lock(cmd.replace("-", "_")):
         log.error("Command '%s' is already running. Exiting.", cmd)
         sys.exit(0)
-    asyncio.run(_run(cmd))
+    try:
+        asyncio.run(_run(cmd))
+    except MissingProviderKeysError:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
