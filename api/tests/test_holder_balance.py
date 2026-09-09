@@ -138,12 +138,41 @@ async def test_successful_refresh_then_holder_check(db: AsyncSession, configured
 async def test_refresh_upserts_not_duplicates(db: AsyncSession, configured) -> None:
     mock = MockRpcProvider(chain_id=CHAIN_ID, balances={(TOKEN.lower(), WALLET.lower()): 5})
     await refresh_wallet_balance(db, WALLET, rpc=mock)
+
+    # Age the just-written row past REFRESH_MIN_INTERVAL — otherwise the
+    # second call below would be served from cache (by design, see
+    # test_second_refresh_within_interval_serves_cache) rather than actually
+    # exercising the upsert-not-duplicate path this test targets.
+    row = (await db.execute(select(CachedWalletBalance).where(CachedWalletBalance.wallet_address == WALLET.lower()))).scalar_one()
+    row.checked_at = datetime.now(UTC) - timedelta(minutes=10)
+    await db.commit()
+
     mock2 = MockRpcProvider(chain_id=CHAIN_ID, balances={(TOKEN.lower(), WALLET.lower()): 10})
     await refresh_wallet_balance(db, WALLET, rpc=mock2)
 
     rows = (await db.execute(select(CachedWalletBalance).where(CachedWalletBalance.wallet_address == WALLET.lower()))).scalars().all()
     assert len(rows) == 1
     assert rows[0].balance_raw == "10"
+
+
+@pytest.mark.asyncio
+async def test_second_refresh_within_interval_serves_cache(db: AsyncSession, configured) -> None:
+    """An authenticated user calling refresh repeatedly must not trigger
+    unbounded RPC calls — a second refresh within REFRESH_MIN_INTERVAL
+    serves the cached balance instead of hitting the RPC again."""
+    mock = MockRpcProvider(chain_id=CHAIN_ID, balances={(TOKEN.lower(), WALLET.lower()): 5})
+    first = await refresh_wallet_balance(db, WALLET, rpc=mock)
+    assert first.status == "ok"
+    assert first.balance_raw == "5"
+
+    mock2 = MockRpcProvider(chain_id=CHAIN_ID, balances={(TOKEN.lower(), WALLET.lower()): 10})
+    second = await refresh_wallet_balance(db, WALLET, rpc=mock2)
+    assert second.status == "ok"
+    assert second.balance_raw == "5"  # still the cached value — mock2 was never called
+
+    rows = (await db.execute(select(CachedWalletBalance).where(CachedWalletBalance.wallet_address == WALLET.lower()))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].balance_raw == "5"
 
 
 @pytest.mark.asyncio

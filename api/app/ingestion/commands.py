@@ -170,11 +170,12 @@ _CRYPTO_HISTORY_CONCURRENCY = 5
 
 
 async def cmd_refresh_stock_eod(skip_weekends: bool = True, days: int = 90) -> dict:
-    """Refresh EOD prices for every stock using ONE batched Marketstack call
-    (fetch_eod_batch) instead of one sequential request per symbol — the
-    Tuesday/Friday job was spending most of its wall-clock time waiting on
-    ~20 sequential round trips for no additional provider-call cost, since
-    Marketstack already bills the batch per symbol either way."""
+    """Refresh EOD prices for every stock using a small number of chunked
+    batched Marketstack calls (fetch_eod_batch, chunked to stay under its
+    1000-row `limit` ceiling) instead of one sequential request per symbol —
+    the Tuesday/Friday job was spending most of its wall-clock time waiting
+    on ~20 sequential round trips for no additional provider-call cost,
+    since Marketstack already bills the batch per symbol either way."""
     settings = get_settings()
     counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0, "records_written": 0}
     if settings.use_demo_data:

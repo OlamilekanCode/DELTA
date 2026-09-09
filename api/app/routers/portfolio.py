@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -11,12 +11,20 @@ from app.services.portfolio import (
     refresh_wallet_positions,
     shape_portfolio_response,
 )
+from app.services.rate_limit import enforce_rate_limit
 
 router = APIRouter(prefix="/portfolio")
+
+# A refresh can fan out into many RPC calls (every configured chain x
+# contract) — refresh_wallet_positions itself also floors the actual RPC
+# work per wallet (PORTFOLIO_REFRESH_MIN_INTERVAL), this is the IP-level
+# floor on top of that, same pattern as the auth/entitlements endpoints.
+_REFRESH_RATE_LIMIT = 10  # per IP per minute
 
 
 @router.post("/refresh")
 async def refresh_portfolio(
+    request: Request,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -24,6 +32,7 @@ async def refresh_portfolio(
     providers from server-only config (never exposed to the frontend) when
     none are injected. Returns `not_configured` — never a misleading
     `positions_refreshed: 0` — when no RPC/contracts are set up yet."""
+    enforce_rate_limit(request, "portfolio-refresh", _REFRESH_RATE_LIMIT)
     result = await refresh_wallet_positions(db, wallet)
     return {
         "status": result.status,

@@ -25,7 +25,6 @@ router = APIRouter()
 _INTRADAY_STOCK_SESSIONS: dict[str, int] = {"4H": 1, "1D": 1, "1W": 5, "1M": 20}
 _INTRADAY_STOCK_TAIL_BUCKETS: dict[str, int | None] = {"4H": 8, "1D": None, "1W": None, "1M": None}
 _INTRADAY_CRYPTO_HOURS: dict[str, float] = {"4H": 4, "1D": 24, "1W": 24 * 7, "1M": 24 * 30}
-_BUCKETS_PER_SESSION = 13  # 6.5h session / 30-minute buckets
 
 # Range -> days of daily history to return.
 _DAILY_RANGE_DAYS: dict[str, int] = {
@@ -249,12 +248,23 @@ def _intraday_window_start(asset: Asset, range_key: str, now: datetime) -> datet
     return now - timedelta(hours=hours)
 
 
+def _session_bucket_count(session_date) -> int:
+    """Actual number of 30-minute buckets in a trading session. A regular
+    session has 13, but NYSE early closes (day before Thanksgiving, July
+    3rd, Christmas Eve, etc.) run shorter — assuming a flat 13 for those
+    days would make a fully-populated shortened session look permanently
+    incomplete."""
+    session_open, session_close = session_open_close(session_date)
+    return int((session_close - session_open).total_seconds() // (BUCKET_MINUTES * 60))
+
+
 def _expected_intraday_count(asset: Asset, range_key: str, window_start: datetime, now: datetime) -> int:
     if asset.asset_type == "stock":
+        session_count = _INTRADAY_STOCK_SESSIONS[range_key]
+        sessions = recent_session_dates(now, count=session_count)
+        total = sum(_session_bucket_count(s) for s in sessions)
         tail = _INTRADAY_STOCK_TAIL_BUCKETS[range_key]
-        if tail is not None:
-            return tail
-        return _INTRADAY_STOCK_SESSIONS[range_key] * _BUCKETS_PER_SESSION
+        return min(tail, total) if tail is not None else total
     # Crypto rolls continuously, so "now" always sits inside a still-open
     # bucket that never appears in the DB (candles are only ever written
     # once complete). Counting hours*2 as "expected" would therefore

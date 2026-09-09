@@ -1,7 +1,9 @@
 """Tests for the historical refresh job's provider-call efficiency:
 
-- Stock EOD refresh uses ONE batched Marketstack call for all symbols,
-  never one sequential request per symbol.
+- Stock EOD refresh uses a small number of chunked batched Marketstack
+  calls for all symbols (chunked to stay under Marketstack's 1000-row
+  `limit` ceiling — see test_fetch_eod_batch_chunks_to_stay_under_marketstack_row_limit
+  below), never one sequential request per symbol.
 - Crypto history refresh uses small bounded concurrency (CoinGecko has no
   batched historical-OHLCV endpoint) rather than a fully sequential loop —
   same call count, just not one at a time.
@@ -45,7 +47,11 @@ def _eod_batch_response(symbols: list[str], as_of: date) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_cmd_refresh_stock_eod_uses_one_batch_call(db: AsyncSession, monkeypatch, httpx_mock) -> None:
+@pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+async def test_cmd_refresh_stock_eod_uses_chunked_batch_calls(db: AsyncSession, monkeypatch, httpx_mock) -> None:
+    """A handful of chunked batch calls (never one per symbol, but also never
+    one oversized call that risks exceeding Marketstack's 1000-row `limit`
+    ceiling — see MarketstackProvider._MAX_ROWS_PER_CALL)."""
     settings = _live_settings()
     monkeypatch.setattr(commands_module, "get_settings", lambda: settings)
 
@@ -60,7 +66,15 @@ async def test_cmd_refresh_stock_eod_uses_one_batch_call(db: AsyncSession, monke
     counts = await cmd_refresh_stock_eod(skip_weekends=False)
 
     requests = [r for r in httpx_mock.get_requests() if "marketstack" in str(r.url)]
-    assert len(requests) == 1  # one batch call for every stock symbol
+    # days=90 default -> chunk_size = 1000 // 100 = 10 symbols/call, so this
+    # catalogue's stock count determines the exact chunk count; assert the
+    # invariant (never one-per-symbol, never a single oversized call) rather
+    # than hardcoding a count that would silently stop testing anything if
+    # the catalogue size changes.
+    assert 1 <= len(requests) < len(stocks)
+    for r in requests:
+        qs = parse_qs(urlparse(str(r.url)).query)
+        assert int(qs["limit"][0]) <= 1000
     assert counts["requested"] == len(stocks)
     assert counts["succeeded"] == len(stocks)
     assert counts["records_written"] > 0

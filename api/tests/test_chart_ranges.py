@@ -118,8 +118,11 @@ async def test_history_crypto_range_uses_continuous_time_cutoff(
     r_1m = await client.get("/api/v1/assets/BTC/history?range=1M")
     body_1m = r_1m.json()
     assert len(body_1m["prices"]) == len([h for h in offsets if h <= 24 * 30])
-    # Never gated by the stock 13/65/260 bucket counts.
-    assert body_1m["expected_point_count"] == 24 * 30 * 2
+    # Never gated by the stock 13/65/260 bucket counts, and never a naive
+    # hours*2 that always overcounts by one still-open bucket — expected is
+    # the count of buckets that could actually have closed by now, which is
+    # usually 2*720-1=1439 and only 1440 in the rare exact-boundary instant.
+    assert body_1m["expected_point_count"] in (24 * 30 * 2 - 1, 24 * 30 * 2)
 
 
 @pytest.mark.asyncio
@@ -152,9 +155,21 @@ async def test_history_daily_completeness_metadata_present(client: AsyncClient) 
 async def test_history_stock_1w_spans_five_sessions_not_flat_limit(
     client: AsyncClient, db: AsyncSession
 ) -> None:
+    from app.services.market_calendar import recent_session_dates, session_open_close
+
     await seed_fixture_intraday_data(db)
     r = await client.get("/api/v1/assets/NVDA/history?range=1W")
     body = r.json()
-    assert body["expected_point_count"] == 5 * 13
-    assert len(body["prices"]) == 5 * 13
+
+    # Sum actual per-session bucket counts rather than assuming a flat 13 —
+    # an NYSE early-close session in the window has fewer, and a hardcoded
+    # 5*13 would spuriously fail on those days even though the response is
+    # correct.
+    def _session_buckets(d):
+        o, c = session_open_close(d)
+        return int((c - o).total_seconds() // 1800)
+
+    expected = sum(_session_buckets(d) for d in recent_session_dates(count=5))
+    assert body["expected_point_count"] == expected
+    assert len(body["prices"]) == expected
     assert body["collecting_data"] is False

@@ -245,12 +245,19 @@ async def test_shape_summary_passes_through_staleness_and_coverage(db: AsyncSess
         "positions_stale": True,
         "quotes_stale": False,
         "total_usd_value": 42.0,
+        "supported_position_count": 3,
+        "excluded_position_count": 1,
         "data_ts": None,
     }
     shaped = shape_portfolio_response("summary", exposure)
     assert shaped["positions_stale"] is True
     assert shaped["quotes_stale"] is False
     assert shaped["total_usd_value"] == 42.0
+    # Regression: these were previously dropped at summary tier while
+    # total_usd_value was kept, so the frontend showed a real dollar total
+    # alongside "0 supported positions".
+    assert shaped["supported_position_count"] == 3
+    assert shaped["excluded_position_count"] == 1
     assert "assets" not in shaped  # still no detailed holdings at summary tier
 
 
@@ -436,7 +443,11 @@ async def test_refresh_wallet_positions_preserves_cache_on_rpc_failure(db: Async
     db.add(CachedWalletPosition(
         wallet_address=WALLET.lower(), chain_id=8453, contract_address=NATIVE,
         asset_id=eth.id, quantity_raw=str(9 * 10**18), decimals=18,
-        block_number=10, updated_at=datetime.now(UTC),
+        block_number=10,
+        # Older than PORTFOLIO_REFRESH_MIN_INTERVAL — otherwise the refresh
+        # rate limiter would short-circuit before the RPC call this test is
+        # actually exercising.
+        updated_at=datetime.now(UTC) - timedelta(minutes=5),
     ))
     await db.commit()
 

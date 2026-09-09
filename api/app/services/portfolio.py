@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -34,6 +34,12 @@ from app.services.portfolio_assets import NATIVE, contracts_for_chain
 # wallet balance snapshot.
 POSITIONS_STALE_AFTER = timedelta(minutes=30)
 QUOTES_STALE_AFTER = timedelta(minutes=45)
+
+# An authenticated user can call POST /portfolio/refresh repeatedly, and
+# unlike the single holder-balance check, one refresh here can fan out into
+# many RPC calls (every configured chain x contract). Floor how often it
+# actually hits the RPC, same principle as holder.REFRESH_MIN_INTERVAL.
+PORTFOLIO_REFRESH_MIN_INTERVAL = timedelta(seconds=30)
 
 TIER_THRESHOLDS = {
     "summary": 5_000,    # $50.00
@@ -174,6 +180,28 @@ async def refresh_wallet_positions(
         )
 
     now = datetime.now(UTC)
+
+    # A refresh here can fan out into many RPC calls (every configured
+    # chain x contract) — floor how often an authenticated user can trigger
+    # that fan-out by serving the still-fresh cached rows instead.
+    last_refresh_result = await db.execute(
+        select(func.max(CachedWalletPosition.updated_at)).where(
+            CachedWalletPosition.wallet_address == wallet_lower
+        )
+    )
+    last_refresh = last_refresh_result.scalar_one_or_none()
+    if last_refresh is not None:
+        last_refresh_aware = last_refresh if last_refresh.tzinfo is not None else last_refresh.replace(tzinfo=UTC)
+        if now - last_refresh_aware < PORTFOLIO_REFRESH_MIN_INTERVAL:
+            cached_result = await db.execute(
+                select(CachedWalletPosition).where(CachedWalletPosition.wallet_address == wallet_lower)
+            )
+            return PortfolioRefreshResult(
+                status="ok",
+                positions=list(cached_result.scalars().all()),
+                message="Using cached positions — refreshed within the last 30 seconds",
+            )
+
     result = PortfolioRefreshResult(status="ok", chains_attempted=len(contracts_by_chain))
 
     for chain_id, contracts in contracts_by_chain.items():
@@ -435,9 +463,13 @@ def _summary_shape(exposure: dict) -> dict:
         }
     if exposure.get("note"):
         shaped["note"] = exposure["note"]
-    # Freshness is safe to surface at every tier — it is not detailed
-    # financial data, just a signal that the user should refresh.
-    for key in ("positions_stale", "quotes_stale", "total_usd_value"):
+    # Freshness/coverage counts are safe to surface at every tier — they are
+    # not detailed financial data (no per-asset weights or symbols), just a
+    # signal that the user should refresh and how much of the wallet this
+    # covers. Dropping supported_position_count here (while keeping
+    # total_usd_value) left the frontend showing "0 supported positions"
+    # alongside a real, non-zero dollar total.
+    for key in ("positions_stale", "quotes_stale", "total_usd_value", "supported_position_count", "excluded_position_count"):
         if key in exposure:
             shaped[key] = exposure[key]
     return shaped

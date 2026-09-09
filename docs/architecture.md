@@ -138,7 +138,7 @@ Three distinct Cloudflare Cron Trigger schedules dispatch to protected `/api/v1/
 |----------|----------|---------|
 | `*/5 * * * *` | `refresh-crypto-quotes` | One CoinGecko batch call for every crypto asset; also persists 5-min observations |
 | `2,32 * * * *` | `refresh-intraday` | One batched Marketstack call for every stock; crypto candles built from stored observations (zero CoinGecko calls); recomputes live scores |
-| `0 23 * * 2,5` | `refresh-history-and-scores` | Stock EOD (one batched Marketstack call, chunked under its 1000-row limit), crypto history (no CoinGecko batch endpoint exists for historical OHLCV — one request per crypto asset, bounded concurrency), historical score recompute, and retention/auth cleanup |
+| `0 23 * * 2,5` | `refresh-history-and-scores` | Stock EOD (a few chunked batched Marketstack calls — never one per symbol, but also never a single oversized call that would exceed Marketstack's 1000-row `limit` ceiling), crypto history (no CoinGecko batch endpoint exists for historical OHLCV — one request per crypto asset, bounded concurrency), historical score recompute, and retention/auth cleanup |
 
 The quote and history jobs share a PostgreSQL advisory lock (no-op on SQLite); intraday uses its own lock so it never queues behind the others. A job that fails entirely (every provider call failed) returns a non-2xx status — the worker never treats that as a silent success.
 
