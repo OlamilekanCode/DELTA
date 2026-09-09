@@ -200,7 +200,7 @@ interface Props {
 }
 
 export default function ExposureGraphCanvas({ graphData }: Props) {
-  if (!graphData || graphData.edges.length === 0) {
+  if (!graphData || graphData.nodes.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="font-mono text-sm text-muted">No graph data available.</p>

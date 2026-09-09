@@ -58,7 +58,6 @@ python -m app.ingestion.commands refresh-intraday        # batched Marketstack +
 python -m app.ingestion.commands recompute-scores
 python -m app.ingestion.commands refresh-all             # stock EOD + crypto history + scores + cleanup
 python -m app.ingestion.commands cleanup-old-data
-python -m app.ingestion.commands refresh-portfolio-catalogue  # verified on-chain contract catalogue — CoinGecko, curated aliases, Robinhood stock tokens
 ```
 
 With `USE_DEMO_DATA=false`, both `MARKETSTACK_API_KEY` and `COINGECKO_API_KEY` must be set. Commands exit with a clear error if either key is missing.

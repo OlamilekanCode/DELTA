@@ -163,14 +163,6 @@ export default function PortfolioExposure({ stocks }: { stocks: ApiAsset[] }) {
             suspended. Restoring your balance restores access — no new purchase is required unless you want
             to upgrade tier.
           </p>
-          {(entitlements?.synthex_balance != null || entitlements?.synthex_required_balance != null) && (
-            <p className="font-mono text-xs text-text">
-              Current: <span className="font-bold">{entitlements?.synthex_balance ?? "—"}</span> SynthEx
-              {entitlements?.synthex_required_balance != null && (
-                <> · Required: <span className="font-bold">{entitlements.synthex_required_balance}</span> SynthEx</>
-              )}
-            </p>
-          )}
           {DEX_URL && (
             <a
               href={DEX_URL}
@@ -216,12 +208,6 @@ export default function PortfolioExposure({ stocks }: { stocks: ApiAsset[] }) {
   }
 }
 
-interface PortfolioHolding {
-  symbol: string;
-  usd_value: number;
-  pct_of_portfolio: number;
-}
-
 interface PortfolioExposureResponse {
   portfolio_exposure_score: number | null;
   note?: string;
@@ -230,12 +216,6 @@ interface PortfolioExposureResponse {
   assets?: { symbol: string; weight: number; score?: number }[];
   excluded?: { symbol?: string; contract_address?: string; reason: string }[];
   ranked?: { stock: string; portfolio_exposure_score: number; assets: { symbol: string; weight: number; score: number }[] }[];
-  // Intraday counterpart of the figures above — calculated separately from
-  // the historical (90-day) figures, never blended into them.
-  live_portfolio_exposure_score?: number | null;
-  live_status?: "ready" | "collecting_data" | "no_data";
-  live_stocks_covered?: number;
-  live_ranked?: { stock: string; portfolio_exposure_score: number; assets: { symbol: string; weight: number; score: number }[] }[];
   category_exposure?: { category: string; weight: number }[];
   coming_soon?: string[];
   data_ts?: string | null;
@@ -244,17 +224,6 @@ interface PortfolioExposureResponse {
   total_usd_value?: number;
   supported_position_count?: number;
   excluded_position_count?: number;
-  // Direct (Robinhood Stock Token) exposure — literal ownership, never
-  // blended into portfolio_exposure_score's correlation-based figure.
-  direct_exposure_usd?: number;
-  direct_exposure_pct?: number;
-  direct_holdings?: PortfolioHolding[];
-  direct_holding_for_stock?: PortfolioHolding | null;
-  // Cash (stablecoin) allocation — zero correlation, still counted in the
-  // total-USD denominator above.
-  cash_usd?: number;
-  cash_pct?: number;
-  cash_holdings?: PortfolioHolding[];
 }
 
 interface PortfolioRefreshResponse {
@@ -447,7 +416,7 @@ function PortfolioDetail({
   const queryClient = useQueryClient();
   const [selectedStock, setSelectedStock] = useState("");
 
-  const { data: exposure, error: exposureError, isLoading } = useQuery({
+  const { data: exposure, error: exposureError } = useQuery({
     queryKey: ["portfolio-exposure", selectedStock],
     queryFn: async () => {
       const qs = selectedStock ? `?stock=${encodeURIComponent(selectedStock)}` : "";
@@ -465,13 +434,6 @@ function PortfolioDetail({
   const headlineScore = exposure?.portfolio_exposure_score ?? topRanked?.portfolio_exposure_score ?? null;
   const headlineStock = exposure?.stock ?? topRanked?.stock ?? null;
   const hasPositions = Boolean(exposure?.assets?.length || exposure?.ranked?.length || exposure?.stocks_covered);
-
-  const liveScore = exposure?.live_portfolio_exposure_score ?? null;
-  const liveStatus = exposure?.stock
-    ? exposure?.live_status
-    : (exposure?.live_stocks_covered ?? 0) > 0
-      ? "ready"
-      : "collecting_data";
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
@@ -510,137 +472,43 @@ function PortfolioDetail({
       )}
 
       <div className="rounded-2xl border border-white/[0.09] bg-panel p-6">
-        {isLoading ? (
-          <>
-            <div className="h-3 w-40 animate-pulse rounded bg-panel2" />
-            <div className="mt-3 h-9 w-24 animate-pulse rounded bg-panel2" />
-            <div className="mt-3 h-3 w-full max-w-md animate-pulse rounded bg-panel2" />
-          </>
-        ) : (
-          <>
-            <p className="font-mono text-xs uppercase tracking-widest text-muted">
-              {headlineStock ? `Synthetic Exposure — ${headlineStock}` : "Synthetic Exposure Score"}
-            </p>
-            <p className="mt-2 font-heading text-4xl font-bold text-text">
-              {headlineScore != null ? formatScore(headlineScore) : "—"}
-            </p>
-            <p className={`mt-3 max-w-md font-mono text-xs ${exposureError ? "text-red-400" : "text-muted"}`}>
-              {exposureError
-                ? "Couldn't load portfolio exposure — try again shortly."
-                : (exposure?.note ??
-                  (hasPositions
-                    ? "Signed correlation between your wallet's crypto holdings and the listed stock, weighted by portfolio share."
-                    : "No wallet positions found yet — refresh your wallet to read current on-chain holdings."))}
-            </p>
-            {!showDetailed && exposure?.stocks_covered != null && exposure.stocks_covered > 0 && (
-              <p className="mt-2 font-mono text-[11px] text-muted/70">
-                Averaged across {exposure.stocks_covered} stock{exposure.stocks_covered === 1 ? "" : "s"} with exposure data.
-              </p>
-            )}
-            {!exposureError && (
-              <div className="mt-3 flex items-center gap-2 border-t border-white/[0.06] pt-3">
-                <span className="font-mono text-[10px] uppercase tracking-widest text-muted/60">Live (30-min)</span>
-                {liveStatus === "ready" && liveScore != null ? (
-                  <span className={`font-mono text-sm font-bold ${liveScore >= 0 ? "text-green" : "text-red-400"}`}>
-                    {formatScore(liveScore)}
-                  </span>
-                ) : liveStatus === "collecting_data" ? (
-                  <span className="font-mono text-xs text-muted">Collecting data</span>
-                ) : (
-                  <span className="font-mono text-xs text-muted">Not available yet</span>
-                )}
-              </div>
-            )}
-            {(exposure?.positions_stale || exposure?.quotes_stale) && (
-              <p className="mt-2 font-mono text-[11px] text-amber">
-                {exposure.positions_stale ? "Wallet positions may be stale — refresh wallet assets. " : ""}
-                {exposure.quotes_stale ? "Prices may be stale." : ""}
-              </p>
-            )}
-            {exposure?.total_usd_value != null && exposure.total_usd_value > 0 && (
-              <>
-                <p className="mt-1 font-mono text-[11px] text-muted/60">
-                  Based on {exposure.supported_position_count ?? 0} supported position
-                  {(exposure.supported_position_count ?? 0) === 1 ? "" : "s"} · ${exposure.total_usd_value.toFixed(2)} valued
-                  {exposure.excluded_position_count ? ` · ${exposure.excluded_position_count} excluded` : ""}
-                </p>
-                {/* Direct / synthetic / cash allocation — every tier, per-holding
-                    breakdowns stay detailed-tier-only further down. */}
-                <div className="mt-4 grid grid-cols-3 gap-3 border-t border-white/[0.06] pt-4">
-                  <div>
-                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted/60">Direct</p>
-                    <p className="mt-1 font-mono text-sm font-bold text-violet-light">
-                      {exposure.direct_exposure_pct != null ? `${(exposure.direct_exposure_pct * 100).toFixed(1)}%` : "—"}
-                    </p>
-                    {exposure.direct_exposure_usd != null && (
-                      <p className="font-mono text-[10px] text-muted/50">${exposure.direct_exposure_usd.toFixed(2)}</p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted/60">Synthetic</p>
-                    <p className="mt-1 font-mono text-sm font-bold text-text">
-                      {exposure.direct_exposure_pct != null && exposure.cash_pct != null
-                        ? `${(Math.max(0, 1 - exposure.direct_exposure_pct - exposure.cash_pct) * 100).toFixed(1)}%`
-                        : "—"}
-                    </p>
-                    <p className="font-mono text-[10px] text-muted/50">crypto correlation</p>
-                  </div>
-                  <div>
-                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted/60">Cash</p>
-                    <p className="mt-1 font-mono text-sm font-bold text-green">
-                      {exposure.cash_pct != null ? `${(exposure.cash_pct * 100).toFixed(1)}%` : "—"}
-                    </p>
-                    {exposure.cash_usd != null && (
-                      <p className="font-mono text-[10px] text-muted/50">${exposure.cash_usd.toFixed(2)}</p>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-          </>
+        <p className="font-mono text-xs uppercase tracking-widest text-muted">
+          {headlineStock ? `Portfolio Exposure — ${headlineStock}` : "Portfolio Exposure Score"}
+        </p>
+        <p className="mt-2 font-heading text-4xl font-bold text-text">
+          {headlineScore != null ? formatScore(headlineScore) : "—"}
+        </p>
+        <p className={`mt-3 max-w-md font-mono text-xs ${exposureError ? "text-red-400" : "text-muted"}`}>
+          {exposureError
+            ? "Couldn't load portfolio exposure — try again shortly."
+            : (exposure?.note ??
+              (hasPositions
+                ? "Signed correlation between your wallet's crypto holdings and the listed stock, weighted by portfolio share."
+                : "No wallet positions found yet — refresh your wallet to read current on-chain holdings."))}
+        </p>
+        {!showDetailed && exposure?.stocks_covered != null && exposure.stocks_covered > 0 && (
+          <p className="mt-2 font-mono text-[11px] text-muted/70">
+            Averaged across {exposure.stocks_covered} stock{exposure.stocks_covered === 1 ? "" : "s"} with exposure data.
+          </p>
+        )}
+        {(exposure?.positions_stale || exposure?.quotes_stale) && (
+          <p className="mt-2 font-mono text-[11px] text-amber">
+            {exposure.positions_stale ? "Wallet positions may be stale — refresh wallet assets. " : ""}
+            {exposure.quotes_stale ? "Prices may be stale." : ""}
+          </p>
+        )}
+        {exposure?.total_usd_value != null && exposure.total_usd_value > 0 && (
+          <p className="mt-1 font-mono text-[11px] text-muted/60">
+            Based on {exposure.supported_position_count ?? 0} supported position
+            {(exposure.supported_position_count ?? 0) === 1 ? "" : "s"} · ${exposure.total_usd_value.toFixed(2)} valued
+            {exposure.excluded_position_count ? ` · ${exposure.excluded_position_count} excluded` : ""}
+          </p>
         )}
       </div>
 
-      {showDetailed && (exposure?.direct_holdings?.length || exposure?.cash_holdings?.length) ? (
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {exposure?.direct_holdings && exposure.direct_holdings.length > 0 && (
-            <div className="rounded-2xl border border-white/[0.09] bg-panel p-6">
-              <p className="mb-3 font-mono text-xs uppercase tracking-widest text-muted">Stock Token Holdings</p>
-              <ul className="space-y-2">
-                {exposure.direct_holdings.map((h) => (
-                  <li key={h.symbol} className="flex items-center justify-between font-mono text-sm">
-                    <span className="text-text">{h.symbol}</span>
-                    <span className="text-violet-light">${h.usd_value.toFixed(2)}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-3 font-mono text-[10px] text-muted/60">
-                Direct exposure — literal ownership, not correlation-based.
-              </p>
-            </div>
-          )}
-          {exposure?.cash_holdings && exposure.cash_holdings.length > 0 && (
-            <div className="rounded-2xl border border-white/[0.09] bg-panel p-6">
-              <p className="mb-3 font-mono text-xs uppercase tracking-widest text-muted">Cash (Stablecoins)</p>
-              <ul className="space-y-2">
-                {exposure.cash_holdings.map((h) => (
-                  <li key={h.symbol} className="flex items-center justify-between font-mono text-sm">
-                    <span className="text-text">{h.symbol}</span>
-                    <span className="text-green">${h.usd_value.toFixed(2)}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-3 font-mono text-[10px] text-muted/60">
-                Zero correlation — counted in total value only.
-              </p>
-            </div>
-          )}
-        </div>
-      ) : null}
-
       {showDetailed && (
         <div className="mt-4 rounded-2xl border border-white/[0.09] bg-panel p-6">
-          <p className="mb-3 font-mono text-xs uppercase tracking-widest text-muted">Synthetic Holdings Weight</p>
+          <p className="mb-3 font-mono text-xs uppercase tracking-widest text-muted">Holdings Weight</p>
           {exposure?.assets?.length ? (
             <ul className="space-y-2">
               {exposure.assets.map((a) => (

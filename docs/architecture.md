@@ -86,7 +86,6 @@ SQLite (dev/test) creates tables directly at startup since there's no separate m
 | `wallet_users`, `auth_nonces`, `sessions` | SIWE authentication |
 | `cached_wallet_balances` | Server-cached `$SynthEx` holder balance per wallet |
 | `cached_wallet_positions` | Server-cached on-chain portfolio asset positions per wallet |
-| `portfolio_asset_contracts` | Verified on-chain contract catalogue for portfolio reads — chain_id + contract_address identity, `contract_type` (native/erc20/robinhood_stock), `verified`/`active` flags, `current_multiplier` for stock tokens |
 | `wallet_entitlements` | Verified cumulative purchase tier per wallet |
 | `claimed_purchase_transactions` | Immutable record of each verified `$SynthEx`/ETH purchase |
 
@@ -119,36 +118,15 @@ Sessions last 30 days. Switching the connected wallet address ends the active se
 
 - `services/holder.py` — reads the `$SynthEx` ERC-20 balance, compares it (as integers, never floats) against `SYNTHEX_HOLDER_MIN_BALANCE_RAW`, and upserts `cached_wallet_balances`. Called after login, on explicit refresh, after purchase verification, and at a 5-minute cache interval — never on an ordinary asset-page request.
 - `services/purchase_verification.py` — verifies a submitted `$SynthEx`/ETH transaction hash: receipt success, chain ID, confirmations, sender, approved router/pool destination, an ERC-20 `Transfer` log moving `$SynthEx` to the wallet, ETH/WETH spent, and the nearest stored ETH/USD price at the block timestamp. Verified purchases update the wallet's cumulative tier atomically and can never be claimed twice.
-- `services/portfolio.py` — reads verified portfolio asset contracts (`services/portfolio_catalog.get_verified_contracts_for_chain`, database-backed — see "Portfolio contract catalogue" below) and upserts `cached_wallet_positions` via `services/wallet_reader.py`'s Multicall3-batched balance reader; `compute_portfolio_exposure` then reads only stored positions, stored quotes/prices and stored Exposure Scores, never a live provider call.
+- `services/portfolio.py` — reads configured portfolio asset contracts (`services/portfolio_assets.py`, a version-controlled list — never a database-configurable or invented address) and upserts `cached_wallet_positions`; `compute_portfolio_exposure` then reads only stored positions, stored quotes and stored Exposure Scores, never a live provider call.
 
-All three fail closed — they return an honest `not_configured`/empty state until `ROBINHOOD_RPC_URL`, `SYNTHEX_TOKEN_ADDRESS`, router/pool addresses, and (for portfolio) at least one verified contract are supplied. The private `ROBINHOOD_RPC_URL` never reaches the frontend.
-
-### Portfolio contract catalogue
-
-`portfolio_asset_contracts` (migration 0014, `current_multiplier` added in 0015) replaces the old static `PORTFOLIO_ASSET_CONTRACTS` list. Populated by `services/portfolio_catalog.py`'s `sync_portfolio_catalogue`, from three independent sources — a failure in one never touches rows written by another:
-
-1. **CoinGecko** `/coins/list?include_platform=true` (one call), matched only against our own already-tracked 100 crypto CoinGecko IDs — never used to discover new assets. Resolved Ethereum/Base addresses are auto-`verified=True`.
-2. **Curated wrapped-token/stablecoin aliases** (WETH→ETH, WBTC/cbBTC→BTC, USDC, USDT — `USDG` deliberately omitted, lowest address-confidence). Not sourced from a live provider response, so these default to `verified=False` and need a human to confirm the address against a block explorer before `services/wallet_reader.py` will use them.
-3. **Robinhood's stock-token registry** (`app/providers/robinhood.py`), filtered to our tracked stock symbols and active chain-4663 deployments. Response schema not yet reconfirmed against a live endpoint — parsed defensively, field-by-field, never crashes on an unexpected shape.
-
-Identity is always `(chain_id, contract_address)` — a token symbol alone is never trusted to resolve a contract. Balance reads (`services/wallet_reader.py`) batch ERC-20 `balanceOf` calls through the Multicall3 standard contract (`services/multicall.py`, hand-rolled ABI encode/decode, no web3.py dependency) when an address is known for the chain (Ethereum/Base by default; `MULTICALL3_ADDRESS_OVERRIDES` env var for others, e.g. once Robinhood Chain's deployment — if any — is confirmed); otherwise it falls back to one `eth_call` per token rather than silently dropping balances. Native gas-token balance is always its own single direct call.
+All three fail closed — they return an honest `not_configured`/empty state until `ROBINHOOD_RPC_URL`, `SYNTHEX_TOKEN_ADDRESS`, router/pool addresses, and (for portfolio) a populated contract list are supplied. The private `ROBINHOOD_RPC_URL` never reaches the frontend.
 
 **Currently unconfigured — not yet live:**
 
-- No Robinhood Chain (or unconfirmed-chain) contract address has been verified yet beyond what CoinGecko/Robinhood's own registries resolve automatically — `refresh_wallet_positions()` has nothing to read for chains with zero verified rows. This is expected, not a bug; portfolio refresh reports `not_configured` accordingly rather than a misleading zero.
+- `services/portfolio_assets.py`'s `PORTFOLIO_ASSET_CONTRACTS` list is empty. No Robinhood Chain (or Ethereum/Base) token contract address has been confirmed yet, so `refresh_wallet_positions()` has nothing to read — this is expected, not a bug, and portfolio refresh reports `not_configured` accordingly rather than a misleading zero.
 - `ETHEREUM_RPC_URL` and `BASE_RPC_URL` are unset, so portfolio reads on those chains stay disabled even once `PORTFOLIO_CHAIN_IDS` includes them.
 - `SYNTHEX_DEX_ROUTER_ADDRESSES`, `SYNTHEX_DEX_POOL_ADDRESSES`, `SYNTHEX_WETH_ADDRESS` and `SYNTHEX_TOKEN_START_BLOCK` are all unset in this environment — purchase verification fails closed until every one of them is supplied, and native-ETH purchases additionally require a confirmed router method registered in `purchase_verification.ROUTER_ADAPTERS` (also empty today) before raw `tx.value` can ever be trusted.
-- Non-EVM-native assets (e.g. SOL, XRP, ADA held on their own chains, not as a wrapped EVM token) can never appear as a wallet position — this reader only ever queries EVM chains, and the catalogue sync only ever stores a contract when a provider's own platform data resolves one. No native-chain wallet reading exists yet for these; a user's real SOL/XRP/ADA holdings are invisible to this feature until their native chains are implemented, not silently misread.
-
-### Direct / synthetic / cash exposure split
-
-`compute_portfolio_exposure` classifies every valued position into one of three buckets before computing anything, and never blends them into one score:
-
-- **Synthetic** — crypto holdings (non-stablecoin). Feeds the existing correlation-weighted `portfolio_exposure_score`, unchanged.
-- **Direct** — Robinhood Stock Token holdings (`contract_type="robinhood_stock"`). Literal ownership of that stock, reported as `direct_exposure_usd`/`direct_holdings`. The raw on-chain balance is scaled by `current_multiplier` (corporate-action adjustment from Robinhood's registry) before valuation — `balanceOfUI()` is not called on-chain, since its selector hasn't been confirmed against a live contract; applying an already-fetched multiplier to the confirmed `balanceOf()` result is the verifiable path. USD value reuses the existing `daily_prices` pipeline for the underlying stock (no new price-caching job).
-- **Cash** — stablecoin holdings (`Asset.asset_type="stablecoin"`, a value distinct from `"crypto"` so every crypto-specific pipeline excludes it structurally). Valued at a flat $1.00/unit, reported as `cash_usd`/`cash_holdings`.
-
-All three share the same total-USD denominator, so a stablecoin or direct stock holding still dilutes the synthetic score's weight even though it never enters the correlation sum itself — "remain in the denominator, contribute zero correlation." `$SynthEx` positions (matched against `SYNTHEX_TOKEN_ADDRESS`) are excluded from every bucket outright — it's an access/entitlement token, never a portfolio exposure input.
 
 ---
 
@@ -161,9 +139,8 @@ Three distinct Cloudflare Cron Trigger schedules dispatch to protected `/api/v1/
 | `*/5 * * * *` | `refresh-crypto-quotes` | One CoinGecko batch call for every crypto asset; also persists 5-min observations |
 | `2,32 * * * *` | `refresh-intraday` | One batched Marketstack call for every stock; crypto candles built from stored observations (zero CoinGecko calls); recomputes live scores |
 | `0 23 * * 2,5` | `refresh-history-and-scores` | Stock EOD (a few chunked batched Marketstack calls — never one per symbol, but also never a single oversized call that would exceed Marketstack's 1000-row `limit` ceiling), crypto history (no CoinGecko batch endpoint exists for historical OHLCV — one request per crypto asset, bounded concurrency), historical score recompute, and retention/auth cleanup |
-| (infrequent, e.g. daily) | `refresh-portfolio-catalogue` | Syncs `portfolio_asset_contracts` from CoinGecko, curated aliases and Robinhood's stock-token registry — see "Portfolio contract catalogue" above. Not yet wired into `cloudflare/src/worker.js`'s schedule; runnable manually via `POST /api/v1/cron/refresh-portfolio-catalogue` or `python -m app.ingestion.commands refresh-portfolio-catalogue` until it is. |
 
-The quote and history jobs share a PostgreSQL advisory lock (no-op on SQLite); intraday and the portfolio catalogue sync each use their own lock so neither queues behind the others. A job that fails entirely (every provider call failed) returns a non-2xx status — the worker never treats that as a silent success.
+The quote and history jobs share a PostgreSQL advisory lock (no-op on SQLite); intraday uses its own lock so it never queues behind the others. A job that fails entirely (every provider call failed) returns a non-2xx status — the worker never treats that as a silent success.
 
 ---
 

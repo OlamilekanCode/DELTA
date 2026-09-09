@@ -471,16 +471,6 @@ FIXTURE_ASSETS: list[dict] = [
     # Crypto — Liquid staking — holder tier
     {"symbol": "RPL",   "name": "Rocket Pool",           "asset_type": "crypto", "category": "Liquid Staking", "access": "holder", "coingecko_id": "rocket-pool"},
     {"symbol": "ETHFI", "name": "Ether.fi",              "asset_type": "crypto", "category": "Liquid Staking", "access": "holder", "coingecko_id": "ether-fi"},
-
-    # Stablecoins — asset_type "stablecoin" (never "crypto"), so they are
-    # structurally excluded from every crypto-specific pipeline (correlation
-    # scoring, the public asset explorer, catalogue-sync coingecko matching)
-    # without needing scattered special-case symbol checks. Portfolio
-    # holdings of these are valued at a flat $1.00/unit and reported as cash
-    # (see services/portfolio.py) — they never need daily price history.
-    {"symbol": "USDC", "name": "USD Coin",   "asset_type": "stablecoin", "category": "Stablecoin", "access": "holder", "coingecko_id": None},
-    {"symbol": "USDT", "name": "Tether",     "asset_type": "stablecoin", "category": "Stablecoin", "access": "holder", "coingecko_id": None},
-    {"symbol": "USDG", "name": "Global Dollar", "asset_type": "stablecoin", "category": "Stablecoin", "access": "holder", "coingecko_id": None},
 ]
 
 

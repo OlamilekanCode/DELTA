@@ -100,10 +100,7 @@ async def list_assets(
     db: AsyncSession = Depends(get_db),
 ) -> AssetListOut:
     ctx = await get_access_context(request, db)
-    # Stablecoins (asset_type="stablecoin") are portfolio-only holdings, not
-    # part of the public correlation catalogue — never leak into the
-    # unfiltered asset list/explorer.
-    stmt = select(Asset).where(Asset.asset_type.in_(["stock", "crypto"])).order_by(Asset.symbol)
+    stmt = select(Asset).order_by(Asset.symbol)
     if type:
         stmt = stmt.where(Asset.asset_type == type)
     clause = free_only_clause(ctx)
@@ -124,7 +121,7 @@ async def search_assets(
     db: AsyncSession = Depends(get_db),
 ) -> AssetListOut:
     ctx = await get_access_context(request, db)
-    stmt = select(Asset).where(Asset.asset_type.in_(["stock", "crypto"])).order_by(Asset.symbol)
+    stmt = select(Asset).order_by(Asset.symbol)
     if type:
         stmt = stmt.where(Asset.asset_type == type)
     clause = free_only_clause(ctx)

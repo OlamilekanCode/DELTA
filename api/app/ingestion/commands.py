@@ -10,7 +10,6 @@ Usage:
     python -m app.ingestion.commands refresh-intraday
     python -m app.ingestion.commands refresh-all
     python -m app.ingestion.commands cleanup-old-data
-    python -m app.ingestion.commands refresh-portfolio-catalogue
 """
 
 import argparse
@@ -93,11 +92,6 @@ async def cmd_backfill() -> None:
         asset_rows = result.all()  # plain tuples — safe after session close
 
     for asset_id, symbol, asset_type in asset_rows:
-        if asset_type == "stablecoin":
-            # Stablecoins are valued at a flat $1.00/unit (see
-            # services/portfolio.py) — they never need daily price history
-            # from either provider.
-            continue
         provider = cg if asset_type == "crypto" else ms
         try:
             async with get_factory()() as asset_db:
@@ -508,26 +502,6 @@ async def cmd_recompute_scores() -> int:
         return n
 
 
-async def cmd_refresh_portfolio_catalogue() -> dict:
-    """Sync the database-backed portfolio contract catalogue from CoinGecko
-    (crypto Ethereum/Base contracts), curated wrapped-token aliases, and
-    Robinhood's stock-token registry. Scheduled/background only — never
-    called from an ordinary portfolio page request. Each source is
-    independent; a failed fetch preserves whatever was already synced
-    rather than wiping the catalogue.
-    """
-    settings = get_settings()
-    from app.providers.robinhood import RobinhoodAssetProvider
-    from app.services.portfolio_catalog import sync_portfolio_catalogue
-
-    cg = CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
-    rh = RobinhoodAssetProvider()
-    async with get_factory()() as db:
-        counts = await sync_portfolio_catalogue(db, cg, rh)
-        log.info("Portfolio catalogue sync: %s", counts)
-        return counts
-
-
 async def cmd_refresh_all() -> dict:
     """Refresh stock EOD history, crypto OHLCV history, recompute scores, and
     run retention cleanup — the full Tuesday/Friday historical maintenance
@@ -556,7 +530,6 @@ _COMMANDS = {
     "refresh-intraday": cmd_refresh_intraday,
     "refresh-all": cmd_refresh_all,
     "cleanup-old-data": cmd_cleanup_old_data,
-    "refresh-portfolio-catalogue": cmd_refresh_portfolio_catalogue,
 }
 
 

@@ -5,7 +5,6 @@ from app.models.exposure_score import StoredExposureScore
 from app.models.intraday_exposure_score import IntradayExposureScore
 from app.models.intraday_price import IntradayPrice
 from app.models.portfolio import WalletEntitlement
-from app.models.portfolio_contract import PortfolioContract
 from app.models.price import DailyPrice
 from app.models.purchase import ClaimedPurchaseTransaction
 from app.models.quote import AssetQuote
@@ -22,7 +21,6 @@ __all__ = [
     "DailyPrice",
     "IntradayExposureScore",
     "IntradayPrice",
-    "PortfolioContract",
     "Session",
     "StoredExposureScore",
     "WalletEntitlement",
