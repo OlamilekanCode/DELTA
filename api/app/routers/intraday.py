@@ -77,7 +77,7 @@ async def get_intraday(
     stored_result = await db.execute(stored_stmt)
     stored_all = stored_result.scalars().all()
 
-    ready_rows = [s for s in stored_all if s.data_quality != "collecting_data"]
+    ready_rows = [s for s in stored_all if s.data_quality == "ok"]
 
     if not ready_rows:
         if stored_all:

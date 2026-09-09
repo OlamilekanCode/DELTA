@@ -60,6 +60,10 @@ async def get_entitlement(db: AsyncSession, wallet_address: str) -> WalletEntitl
 
 
 async def get_or_create_entitlement(db: AsyncSession, wallet_address: str) -> WalletEntitlement:
+    """Standalone convenience — commits immediately if a new entitlement row
+    had to be created. Never call this from inside a larger transaction
+    (e.g. purchase verification) that must commit atomically as a whole —
+    use `get_or_create_entitlement_in_transaction` there instead."""
     entitlement = await get_entitlement(db, wallet_address)
     if entitlement is None:
         entitlement = WalletEntitlement(
@@ -70,6 +74,27 @@ async def get_or_create_entitlement(db: AsyncSession, wallet_address: str) -> Wa
         )
         db.add(entitlement)
         await db.commit()
+    return entitlement
+
+
+async def get_or_create_entitlement_in_transaction(db: AsyncSession, wallet_address: str) -> WalletEntitlement:
+    """Transaction-safe variant for callers that make further changes and
+    must commit everything atomically themselves (e.g. purchase
+    verification writing a claim + entitlement update in one transaction).
+    Uses `flush()`, never `commit()` — a new entitlement row is visible to
+    the rest of the same transaction but only persists once the caller's
+    own commit succeeds, so a failure anywhere in that transaction rolls
+    the new entitlement back along with everything else."""
+    entitlement = await get_entitlement(db, wallet_address)
+    if entitlement is None:
+        entitlement = WalletEntitlement(
+            wallet_address=wallet_address.lower(),
+            tier="locked",
+            cumulative_usd_cents=0,
+            updated_at=datetime.now(UTC),
+        )
+        db.add(entitlement)
+        await db.flush()
     return entitlement
 
 

@@ -23,11 +23,16 @@ from app.models.asset import Asset
 from app.models.crypto_observation import CryptoQuoteObservation
 from app.models.purchase import ClaimedPurchaseTransaction
 from app.services.blockchain import JsonRpcProvider, RpcError, RpcProvider
-from app.services.portfolio import get_or_create_entitlement, get_tier
+from app.services.portfolio import get_or_create_entitlement_in_transaction, get_tier
 
 NOT_CONFIGURED = {
     "status": "not_configured",
     "message": "Purchase verification is not configured yet",
+}
+
+PURCHASE_VERIFICATION_NOT_CONFIGURED = {
+    "status": "purchase_verification_not_configured",
+    "message": "No router adapter is configured for this destination/method yet",
 }
 
 _TX_HASH_RE = re.compile(r"^0x[a-fA-F0-9]{64}$")
@@ -37,31 +42,41 @@ _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df52
 @dataclass(frozen=True)
 class RouterAdapter:
     """Method selectors on a specific router/pool address that are confirmed
-    (by reading the deployed contract source, not guessed) to consume the
-    entire `msg.value` with no refund path — e.g. an "exact ETH in" swap. Any
-    selector NOT listed here — including on an unregistered router — is
-    treated as potentially refund-capable, so raw `tx.value` is never trusted
-    as net spend without this explicit proof."""
+    (by reading the deployed contract source, not guessed) to be safely
+    verifiable purchase routes.
 
-    exact_input_selectors: frozenset[str]
+    - `exact_input_selectors`: consume the entire input (native ETH's
+      `tx.value`, or the full WETH amount transferred) with no refund path.
+      Native ETH's `tx.value` can only ever be trusted through a selector
+      listed here — never for a merely `refundable` one, since a native-ETH
+      refund cannot be observed and subtracted the way a WETH Transfer log
+      can.
+    - `refundable_selectors`: may refund unused input back to the sender in
+      the same transaction (e.g. an exact-output swap). Safe for WETH
+      routes only — the refund is observed via a WETH `Transfer` log back
+      to the wallet and subtracted from the amount spent.
+    """
+
+    exact_input_selectors: frozenset[str] = frozenset()
+    refundable_selectors: frozenset[str] = frozenset()
 
 
 # Populate only once a real Robinhood Chain router/pool address and its
 # audited method selectors are confirmed — never guessed or assumed from a
-# generic ABI. Empty means every native-ETH purchase currently returns
-# unsupported_purchase_method; WETH-Transfer-log-based purchases are exact by
-# construction and don't depend on this registry at all.
+# generic ABI. Empty means every purchase — native ETH or WETH — currently
+# fails closed with `purchase_verification_not_configured`, since no route
+# can yet be verified safely.
 ROUTER_ADAPTERS: dict[str, RouterAdapter] = {}
 
 
-def _native_eth_fully_consumed(destination_address: str | None, input_data: str) -> bool:
+def _adapter_for(destination_address: str | None) -> RouterAdapter | None:
     if not destination_address:
-        return False
-    adapter = ROUTER_ADAPTERS.get(destination_address.lower())
-    if adapter is None:
-        return False
-    selector = (input_data or "0x")[:10].lower()
-    return selector in adapter.exact_input_selectors
+        return None
+    return ROUTER_ADAPTERS.get(destination_address.lower())
+
+
+def _selector(input_data: str) -> str:
+    return (input_data or "0x")[:10].lower()
 
 
 def _decode_address_topic(topic: str) -> str:
@@ -181,6 +196,7 @@ async def verify_purchase(
     synthex_received = 0
     synthex_source_address: str | None = None
     weth_spent = 0
+    weth_refunded = 0
     for log in receipt.logs:
         topics = log.get("topics") or []
         if not topics or topics[0].lower() != _TRANSFER_TOPIC:
@@ -201,6 +217,12 @@ async def verify_purchase(
             synthex_source_address = from_addr
         if log_address == weth_address and from_addr == wallet_lower and to_addr in allowed_destinations:
             weth_spent += amount
+        # A refund of unused WETH input back to the wallet, in the same
+        # transaction, from the same approved destination — subtracted
+        # below so an exact-output swap's refund can never inflate the
+        # claimed spend.
+        if log_address == weth_address and to_addr == wallet_lower and from_addr in allowed_destinations:
+            weth_refunded += amount
 
     if synthex_received == 0:
         return {
@@ -208,16 +230,40 @@ async def verify_purchase(
             "message": "No $SynthEx transfer from an approved router/pool to the authenticated wallet was found",
         }
 
-    # ETH spent: a WETH Transfer log is exact by construction (no refund
-    # ambiguity). Native ETH's tx.value is only trusted when the destination
-    # router/pool and called method are confirmed (via ROUTER_ADAPTERS) to
-    # consume the full value with no refund — otherwise we cannot safely
-    # rule out an excess-ETH refund inflating the claimed spend, so we
-    # decline rather than guess.
+    if weth_spent > 0 and tx.value_wei > 0:
+        return {
+            "status": "invalid",
+            "message": "Ambiguous transfer path: both native ETH value and a WETH transfer are present",
+        }
+
+    adapter = _adapter_for(tx.to_address)
+    selector = _selector(tx.input_data)
+
     if weth_spent > 0:
-        eth_spent_wei = weth_spent
+        # WETH route — requires a registered adapter and a selector that
+        # adapter confirms is safe (either exact-input or refundable; a
+        # refund, if any, is subtracted above via the WETH log).
+        if adapter is None:
+            return dict(PURCHASE_VERIFICATION_NOT_CONFIGURED)
+        if selector not in adapter.exact_input_selectors and selector not in adapter.refundable_selectors:
+            return {
+                "status": "unsupported_purchase_method",
+                "message": "This router method is not supported for verification yet",
+            }
+        eth_spent_wei = weth_spent - weth_refunded
+        if eth_spent_wei <= 0:
+            return {
+                "status": "invalid",
+                "message": "Net WETH spend after refunds is zero or negative",
+            }
     elif tx.value_wei > 0:
-        if not _native_eth_fully_consumed(tx.to_address, tx.input_data):
+        # Native ETH is only ever trusted through an exact-input selector —
+        # a native-ETH refund cannot be observed and subtracted the way a
+        # WETH Transfer log can, so a merely "refundable" selector is never
+        # sufficient here.
+        if adapter is None:
+            return dict(PURCHASE_VERIFICATION_NOT_CONFIGURED)
+        if selector not in adapter.exact_input_selectors:
             return {
                 "status": "unsupported_purchase_method",
                 "message": (
@@ -248,6 +294,12 @@ async def verify_purchase(
     usd_value = eth_spent * Decimal(str(eth_usd_price))
     usd_value_cents = int((usd_value * 100).to_integral_value())
 
+    # Blockchain validation is complete — everything above this point is
+    # read-only. Only now does the database persistence transaction begin;
+    # the claim insert, entitlement creation/update, and final commit are
+    # one atomic unit — any failure among them rolls all of it back
+    # together, never leaving a claim behind without its entitlement update
+    # (or vice versa).
     now = datetime.now(UTC)
     claim = ClaimedPurchaseTransaction(
         wallet_address=wallet_lower,
@@ -266,17 +318,21 @@ async def verify_purchase(
     )
     db.add(claim)
 
-    entitlement = await get_or_create_entitlement(db, wallet_lower)
-    entitlement.cumulative_usd_cents += usd_value_cents
-    entitlement.tier = get_tier(entitlement.cumulative_usd_cents)
-    entitlement.updated_at = now
-
     try:
+        entitlement = await get_or_create_entitlement_in_transaction(db, wallet_lower)
+        entitlement.cumulative_usd_cents += usd_value_cents
+        entitlement.tier = get_tier(entitlement.cumulative_usd_cents)
+        entitlement.updated_at = now
         await db.commit()
     except IntegrityError:
         # Concurrent duplicate claim raced us on the tx_hash unique constraint.
         await db.rollback()
         return {"status": "already_claimed", "message": "This transaction has already been claimed"}
+    except Exception:
+        # Any other failure (e.g. an entitlement-side error) must not leave
+        # the claim insert or entitlement changes partially persisted.
+        await db.rollback()
+        raise
 
     return {
         "status": "verified",

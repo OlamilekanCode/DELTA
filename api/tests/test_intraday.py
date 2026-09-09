@@ -229,13 +229,33 @@ async def test_recompute_data_ts_is_last_common_candle_not_wall_clock(db: AsyncS
 
 
 @pytest.mark.asyncio
-async def test_recompute_pair_is_demo_when_either_side_is_demo(db: AsyncSession) -> None:
+async def test_recompute_pair_fully_real_window_is_not_demo(db: AsyncSession) -> None:
     stock = (await db.execute(select(Asset).where(Asset.symbol == "NVDA", Asset.asset_type == "stock"))).scalar_one()
     crypto = (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one()
 
     base = (datetime.now(UTC) - timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
     candles = _full_candles(base, MIN_INTRADAY_OBS + 5)
     await ingest_intraday_candles(db, stock.id, candles, provider="test", is_demo=False)
+    await ingest_intraday_candles(db, crypto.id, candles, provider="test", is_demo=False)
+    await db.commit()
+
+    await recompute_intraday_scores_for_stock(db, stock, [crypto])
+
+    row = (await db.execute(select(IntradayExposureScore).where(
+        IntradayExposureScore.stock_id == stock.id, IntradayExposureScore.crypto_id == crypto.id,
+    ))).scalar_one()
+    assert row.is_demo is False
+    assert row.data_quality == "ok"
+
+
+@pytest.mark.asyncio
+async def test_recompute_pair_fully_demo_window_is_demo(db: AsyncSession) -> None:
+    stock = (await db.execute(select(Asset).where(Asset.symbol == "NVDA", Asset.asset_type == "stock"))).scalar_one()
+    crypto = (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one()
+
+    base = (datetime.now(UTC) - timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
+    candles = _full_candles(base, MIN_INTRADAY_OBS + 5)
+    await ingest_intraday_candles(db, stock.id, candles, provider="test", is_demo=True)
     await ingest_intraday_candles(db, crypto.id, candles, provider="test", is_demo=True)
     await db.commit()
 
@@ -245,6 +265,43 @@ async def test_recompute_pair_is_demo_when_either_side_is_demo(db: AsyncSession)
         IntradayExposureScore.stock_id == stock.id, IntradayExposureScore.crypto_id == crypto.id,
     ))).scalar_one()
     assert row.is_demo is True
+    assert row.data_quality == "ok"
+
+
+@pytest.mark.asyncio
+async def test_recompute_pair_skips_unresolvable_mixed_provenance(db: AsyncSession) -> None:
+    """Enough raw aligned observations exist in total, but they're split
+    across real and demo candles such that neither pure-real nor pure-demo
+    subset alone reaches the alignment threshold — must be skipped with a
+    clear reason, never blended into one correlation."""
+    stock = (await db.execute(select(Asset).where(Asset.symbol == "NVDA", Asset.asset_type == "stock"))).scalar_one()
+    crypto = (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one()
+
+    n = MIN_INTRADAY_OBS + 5
+    half = n // 2
+    base = (datetime.now(UTC) - timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
+    all_candles = _full_candles(base, n)
+
+    # Stock is real for the entire window. Crypto is real for the first
+    # half and demo for the second half — real_common (~half) and
+    # demo_common (0, since stock is never demo) both fall short of
+    # MIN_INTRADAY_OBS, even though the total aligned count does not.
+    await ingest_intraday_candles(db, stock.id, all_candles, provider="test", is_demo=False)
+    await ingest_intraday_candles(db, crypto.id, all_candles[:half], provider="test", is_demo=False)
+    await ingest_intraday_candles(db, crypto.id, all_candles[half:], provider="test", is_demo=True)
+    await db.commit()
+
+    results, _ = await compute_intraday_scores(db, stock, [crypto])
+    assert results[0].data_quality == "mixed_provenance"
+    assert results[0].collecting_data is True
+    assert results[0].is_demo is None
+    assert results[0].observations == 0
+
+    await recompute_intraday_scores_for_stock(db, stock, [crypto])
+    row = (await db.execute(select(IntradayExposureScore).where(
+        IntradayExposureScore.stock_id == stock.id, IntradayExposureScore.crypto_id == crypto.id,
+    ))).scalar_one()
+    assert row.data_quality == "mixed_provenance"
 
 
 @pytest.mark.asyncio

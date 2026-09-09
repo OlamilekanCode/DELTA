@@ -144,10 +144,11 @@ async def test_verify_purchase_success_native_eth_via_confirmed_adapter(db: Asyn
 @pytest.mark.asyncio
 async def test_verify_purchase_rejects_native_eth_with_no_registered_adapter(db: AsyncSession, configured) -> None:
     """No router/pool has a confirmed adapter yet (ROUTER_ADAPTERS starts
-    empty) — native ETH must never be trusted by default."""
+    empty) — native ETH must never be trusted by default, and must fail
+    closed as "not configured" rather than a method-specific rejection."""
     mock = _mock_provider(value_wei=10**18, logs=[_transfer_log(TOKEN, ROUTER, WALLET, 500 * 10**18)])
     result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
-    assert result["status"] == "unsupported_purchase_method"
+    assert result["status"] == "purchase_verification_not_configured"
 
 
 @pytest.mark.asyncio
@@ -168,8 +169,19 @@ async def test_verify_purchase_rejects_refund_capable_native_eth_method(db: Asyn
     assert result["status"] == "unsupported_purchase_method"
 
 
+_WETH_EXACT_IN_SELECTOR = "0x38ed1739"  # e.g. swapExactTokensForTokens — full WETH-in consumed, no refund
+_WETH_REFUNDABLE_SELECTOR = "0x8803dbee"  # e.g. swapTokensForExactTokens — may refund unused WETH input
+
+
+def _with_weth_adapter(monkeypatch, **kwargs) -> None:
+    monkeypatch.setitem(pv_module.ROUTER_ADAPTERS, ROUTER.lower(), RouterAdapter(**kwargs))
+
+
 @pytest.mark.asyncio
-async def test_verify_purchase_via_weth_swap(db: AsyncSession, configured) -> None:
+async def test_verify_purchase_via_weth_swap_exact_input(db: AsyncSession, configured, monkeypatch) -> None:
+    """A supported exact-input WETH route with no refund log is trusted for
+    its full transferred amount."""
+    _with_weth_adapter(monkeypatch, exact_input_selectors=frozenset({_WETH_EXACT_IN_SELECTOR}))
     now = datetime.now(UTC)
     await _seed_eth_price(db, now - timedelta(seconds=5))
     mock = _mock_provider(
@@ -179,10 +191,105 @@ async def test_verify_purchase_via_weth_swap(db: AsyncSession, configured) -> No
             _transfer_log(TOKEN, ROUTER, WALLET, 1000 * 10**18),
         ],
         block_timestamp=now,
+        input_data=_WETH_EXACT_IN_SELECTOR + "0" * 56,
     )
     result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
     assert result["status"] == "verified"
     assert result["usd_value"] == pytest.approx(6000.0, rel=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_weth_exact_output_subtracts_refund(db: AsyncSession, configured, monkeypatch) -> None:
+    """An exact-output WETH swap can refund unused input in the same
+    transaction — the verified spend must be net of that refund, never the
+    gross amount transferred out."""
+    _with_weth_adapter(monkeypatch, refundable_selectors=frozenset({_WETH_REFUNDABLE_SELECTOR}))
+    now = datetime.now(UTC)
+    await _seed_eth_price(db, now - timedelta(seconds=5), price=1000.0)
+    mock = _mock_provider(
+        value_wei=0,
+        logs=[
+            _transfer_log(WETH, WALLET, ROUTER, 5 * 10**18),   # gross sent
+            _transfer_log(WETH, ROUTER, WALLET, 2 * 10**18),   # refund of unused input
+            _transfer_log(TOKEN, ROUTER, WALLET, 1000 * 10**18),
+        ],
+        block_timestamp=now,
+        input_data=_WETH_REFUNDABLE_SELECTOR + "0" * 56,
+    )
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "verified"
+    # net = 5 - 2 = 3 ETH * $1000 = $3000, not 5 * $1000 = $5000
+    assert result["usd_value"] == pytest.approx(3000.0, rel=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_weth_refund_inflated_to_zero_rejected(db: AsyncSession, configured, monkeypatch) -> None:
+    """A refund equal to (or exceeding) the gross amount sent must never be
+    accepted as a positive purchase."""
+    _with_weth_adapter(monkeypatch, refundable_selectors=frozenset({_WETH_REFUNDABLE_SELECTOR}))
+    mock = _mock_provider(
+        value_wei=0,
+        logs=[
+            _transfer_log(WETH, WALLET, ROUTER, 2 * 10**18),
+            _transfer_log(WETH, ROUTER, WALLET, 2 * 10**18),  # full refund — net spend is zero
+            _transfer_log(TOKEN, ROUTER, WALLET, 1000 * 10**18),
+        ],
+        input_data=_WETH_REFUNDABLE_SELECTOR + "0" * 56,
+    )
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_weth_unrelated_transfer_not_counted(db: AsyncSession, configured, monkeypatch) -> None:
+    """A WETH transfer from the wallet to some unrelated (non-approved)
+    address in the same transaction must never count as purchase spend."""
+    _with_weth_adapter(monkeypatch, exact_input_selectors=frozenset({_WETH_EXACT_IN_SELECTOR}))
+    unrelated = "0x" + "d" * 40
+    mock = _mock_provider(
+        value_wei=0,
+        logs=[
+            _transfer_log(WETH, WALLET, unrelated, 2 * 10**18),
+            _transfer_log(TOKEN, ROUTER, WALLET, 1000 * 10**18),
+        ],
+        input_data=_WETH_EXACT_IN_SELECTOR + "0" * 56,
+    )
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "unable_to_determine_net_spend"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_weth_unsupported_router_method(db: AsyncSession, configured, monkeypatch) -> None:
+    """An adapter is registered for this router, but not for the specific
+    method actually called — must fail as unsupported, not silently
+    verified."""
+    _with_weth_adapter(monkeypatch, exact_input_selectors=frozenset({_WETH_EXACT_IN_SELECTOR}))
+    other_selector = "0xdeadbeef"
+    mock = _mock_provider(
+        value_wei=0,
+        logs=[
+            _transfer_log(WETH, WALLET, ROUTER, 2 * 10**18),
+            _transfer_log(TOKEN, ROUTER, WALLET, 1000 * 10**18),
+        ],
+        input_data=other_selector + "0" * 56,
+    )
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "unsupported_purchase_method"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_ambiguous_both_native_and_weth_rejected(db: AsyncSession, configured, monkeypatch) -> None:
+    _with_weth_adapter(monkeypatch, exact_input_selectors=frozenset({_WETH_EXACT_IN_SELECTOR}))
+    mock = _mock_provider(
+        value_wei=10**18,
+        logs=[
+            _transfer_log(WETH, WALLET, ROUTER, 2 * 10**18),
+            _transfer_log(TOKEN, ROUTER, WALLET, 1000 * 10**18),
+        ],
+        input_data=_WETH_EXACT_IN_SELECTOR + "0" * 56,
+    )
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "invalid"
 
 
 @pytest.mark.asyncio
@@ -313,12 +420,14 @@ async def test_verify_purchase_production_requires_start_block(db: AsyncSession,
 
 
 @pytest.mark.asyncio
-async def test_verify_purchase_price_unavailable(db: AsyncSession, configured) -> None:
+async def test_verify_purchase_price_unavailable(db: AsyncSession, configured, monkeypatch) -> None:
+    _with_weth_adapter(monkeypatch, exact_input_selectors=frozenset({_WETH_EXACT_IN_SELECTOR}))
     old_ts = datetime.now(UTC) - timedelta(days=400)
     mock = _mock_provider(
         value_wei=0,
         logs=[_transfer_log(WETH, WALLET, ROUTER, 1), _transfer_log(TOKEN, ROUTER, WALLET, 1)],
         block_timestamp=old_ts,
+        input_data=_WETH_EXACT_IN_SELECTOR + "0" * 56,
     )
     result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
     assert result["status"] == "price_unavailable"
@@ -340,7 +449,8 @@ async def test_verify_purchase_already_claimed(db: AsyncSession, configured) -> 
 
 
 @pytest.mark.asyncio
-async def test_verify_purchase_updates_entitlement_tier(db: AsyncSession, configured) -> None:
+async def test_verify_purchase_updates_entitlement_tier(db: AsyncSession, configured, monkeypatch) -> None:
+    _with_weth_adapter(monkeypatch, exact_input_selectors=frozenset({_WETH_EXACT_IN_SELECTOR}))
     now = datetime.now(UTC)
     await _seed_eth_price(db, now - timedelta(seconds=5), price=100.0)
     # 1 ETH * $100 = $100 → within the $50-$249.99 "summary" tier
@@ -351,7 +461,40 @@ async def test_verify_purchase_updates_entitlement_tier(db: AsyncSession, config
             _transfer_log(TOKEN, ROUTER, WALLET, 1000 * 10**18),
         ],
         block_timestamp=now,
+        input_data=_WETH_EXACT_IN_SELECTOR + "0" * 56,
     )
     result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
     assert result["status"] == "verified"
     assert result["tier"] == "summary"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_entitlement_failure_leaves_no_orphaned_claim(db: AsyncSession, configured, monkeypatch) -> None:
+    """If anything fails after the claim is staged but before the single
+    final commit, no claim row must be left behind without its matching
+    entitlement update."""
+    _with_weth_adapter(monkeypatch, exact_input_selectors=frozenset({_WETH_EXACT_IN_SELECTOR}))
+    now = datetime.now(UTC)
+    await _seed_eth_price(db, now - timedelta(seconds=5))
+    mock = _mock_provider(
+        value_wei=0,
+        logs=[
+            _transfer_log(WETH, WALLET, ROUTER, 10**18),
+            _transfer_log(TOKEN, ROUTER, WALLET, 1000 * 10**18),
+        ],
+        block_timestamp=now,
+        input_data=_WETH_EXACT_IN_SELECTOR + "0" * 56,
+    )
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("simulated entitlement-side failure")
+
+    monkeypatch.setattr(pv_module, "get_tier", boom)
+
+    with pytest.raises(RuntimeError):
+        await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+
+    row = (await db.execute(
+        select(ClaimedPurchaseTransaction).where(ClaimedPurchaseTransaction.tx_hash == TX_HASH.lower())
+    )).scalar_one_or_none()
+    assert row is None

@@ -150,24 +150,6 @@ async def stock_candle_count(db: AsyncSession, stock_id: int) -> int:
     return len(data)
 
 
-async def _demo_flags(db: AsyncSession, asset_ids: list[int]) -> dict[int, bool]:
-    """Best-effort is_demo lookup for a batch of assets, from each asset's
-    most recently stored candle (one query for the whole batch, not one per
-    asset). An asset with no candle at all defaults to True — fail toward
-    "demo" rather than silently implying real data."""
-    if not asset_ids:
-        return {}
-    result = await db.execute(
-        select(IntradayPrice.asset_id, IntradayPrice.is_demo)
-        .where(IntradayPrice.asset_id.in_(asset_ids), IntradayPrice.interval == INTERVAL)
-        .order_by(IntradayPrice.asset_id, IntradayPrice.bucket_ts.desc())
-    )
-    flags: dict[int, bool] = {}
-    for asset_id, is_demo in result.all():
-        flags.setdefault(asset_id, is_demo)  # first row per asset_id is the latest (ORDER BY ... DESC)
-    return flags
-
-
 @dataclass
 class IntradayScoreResult:
     symbol: str
@@ -176,17 +158,22 @@ class IntradayScoreResult:
     score: float
     observations: int
     collecting_data: bool
-    data_ts: datetime | None = None  # latest common (aligned) stock/crypto candle timestamp for this pair
+    data_ts: datetime | None = None  # latest aligned stock/crypto candle timestamp actually used for this pair
+    is_demo: bool | None = None  # provenance of the exact window used — None when not yet meaningful
+    data_quality: str = "collecting_data"  # "ok" | "collecting_data" | "mixed_provenance"
 
 
 async def _load_intraday_open_close(
     db: AsyncSession, asset_id: int, allowed_dates: set | None = None
-) -> dict[datetime, tuple[float, float]]:
+) -> dict[datetime, tuple[float, float, bool]]:
     """Reduced-quality candles (insufficient samples to trust the bucket) are
-    excluded from scoring entirely — never averaged in alongside "ok" candles."""
+    excluded from scoring entirely — never averaged in alongside "ok"
+    candles. Each entry also carries that specific candle's is_demo flag so
+    a pair's score can be attributed to the exact demo/real provenance of
+    the candles actually used, not just an asset-wide guess."""
     cutoff = datetime.now(UTC) - timedelta(days=MAX_SESSIONS * 3)  # generous buffer for weekends
     result = await db.execute(
-        select(IntradayPrice.bucket_ts, IntradayPrice.open, IntradayPrice.close)
+        select(IntradayPrice.bucket_ts, IntradayPrice.open, IntradayPrice.close, IntradayPrice.is_demo)
         .where(
             IntradayPrice.asset_id == asset_id,
             IntradayPrice.interval == INTERVAL,
@@ -198,7 +185,22 @@ async def _load_intraday_open_close(
     rows = result.all()
     if allowed_dates is not None:
         rows = [r for r in rows if r.bucket_ts.date() in allowed_dates]
-    return {r.bucket_ts: (r.open, r.close) for r in rows if r.open > 0 and r.close > 0}
+    return {r.bucket_ts: (r.open, r.close, r.is_demo) for r in rows if r.open > 0 and r.close > 0}
+
+
+def _partition_by_provenance(
+    common: list[datetime],
+    stock_data: dict[datetime, tuple[float, float, bool]],
+    crypto_data: dict[datetime, tuple[float, float, bool]],
+) -> tuple[list[datetime], list[datetime]]:
+    """Split the aligned timestamps into a fully-real subset (both candles
+    real at that timestamp) and a fully-demo subset (both demo) — a
+    timestamp where one side is real and the other demo belongs to neither
+    pure subset, since a single paired observation can never be honestly
+    attributed to just one provenance."""
+    real = [t for t in common if not stock_data[t][2] and not crypto_data[t][2]]
+    demo = [t for t in common if stock_data[t][2] and crypto_data[t][2]]
+    return real, demo
 
 
 async def compute_intraday_scores(
@@ -236,20 +238,46 @@ async def compute_intraday_scores(
         else:
             crypto_data = await _load_intraday_open_close(db, ca.id, allowed_dates=allowed_dates)
         common = sorted(set(stock_data) & set(crypto_data))
-        last_common_ts = common[-1] if common else None
-        s_rets = [math.log(stock_data[t][1] / stock_data[t][0]) for t in common]
-        c_rets = [math.log(crypto_data[t][1] / crypto_data[t][0]) for t in common]
-        n = len(common)
+
+        # Never combine demo and real candles in one calculation — prefer a
+        # fully real-data window over a fully demo one when both reach the
+        # threshold, since real data is always the more useful signal.
+        real_common, demo_common = _partition_by_provenance(common, stock_data, crypto_data)
+        if len(real_common) >= MIN_INTRADAY_OBS:
+            window, window_is_demo = real_common, False
+        elif len(demo_common) >= MIN_INTRADAY_OBS:
+            window, window_is_demo = demo_common, True
+        elif len(common) >= MIN_INTRADAY_OBS:
+            # Enough raw aligned observations exist, but neither a pure-real
+            # nor pure-demo subset reaches the threshold on its own — an
+            # unresolvable provenance mix. Skip rather than silently blend
+            # demo and real candles into one correlation.
+            results.append(IntradayScoreResult(
+                symbol=ca.symbol, name=ca.name, category=ca.category,
+                score=0.0, observations=0, collecting_data=True, data_ts=common[-1],
+                is_demo=None, data_quality="mixed_provenance",
+            ))
+            continue
+        else:
+            # Genuinely not enough aligned data yet, regardless of provenance.
+            window, window_is_demo = common, None
+
+        last_ts = window[-1] if window else None
+        s_rets = [math.log(stock_data[t][1] / stock_data[t][0]) for t in window]
+        c_rets = [math.log(crypto_data[t][1] / crypto_data[t][0]) for t in window]
+        n = len(window)
         if n < MIN_INTRADAY_OBS:
             results.append(IntradayScoreResult(
                 symbol=ca.symbol, name=ca.name, category=ca.category,
-                score=0.0, observations=n, collecting_data=True, data_ts=last_common_ts,
+                score=0.0, observations=n, collecting_data=True, data_ts=last_ts,
+                is_demo=window_is_demo, data_quality="collecting_data",
             ))
             continue
         r, n2 = pearson_r(s_rets, c_rets, min_observations=MIN_INTRADAY_OBS)
         results.append(IntradayScoreResult(
             symbol=ca.symbol, name=ca.name, category=ca.category,
-            score=round(r, 4), observations=n2, collecting_data=False, data_ts=last_common_ts,
+            score=round(r, 4), observations=n2, collecting_data=False, data_ts=last_ts,
+            is_demo=window_is_demo, data_quality="ok",
         ))
 
     results.sort(key=lambda x: (-abs(x.score), x.symbol))
@@ -276,8 +304,6 @@ async def recompute_intraday_scores_for_stock(
         return results, stock_candle_count
 
     now = datetime.now(UTC)
-    demo_flags = await _demo_flags(db, [stock.id, *(ca.id for ca in crypto_assets)])
-    stock_is_demo = demo_flags.get(stock.id, True)
     crypto_by_symbol = {c.symbol: c for c in crypto_assets}
 
     existing_result = await db.execute(
@@ -289,9 +315,13 @@ async def recompute_intraday_scores_for_stock(
     for r in results:
         ca = crypto_by_symbol[r.symbol]
         seen_crypto_ids.add(ca.id)
-        pair_is_demo = stock_is_demo or demo_flags.get(ca.id, True)
+        # Provenance and quality come directly from the exact window used to
+        # compute this pair's score (see compute_intraday_scores) — never a
+        # separate, coarser per-asset guess. Fail toward "demo" when the
+        # window's provenance couldn't be determined (not enough data yet).
+        pair_is_demo = True if r.is_demo is None else r.is_demo
         data_ts = r.data_ts or now
-        data_quality = "collecting_data" if r.collecting_data else "ok"
+        data_quality = r.data_quality
 
         row = existing_by_crypto.get(ca.id)
         if row is not None:
