@@ -13,9 +13,11 @@ interface Props {
   symbol: string;
 }
 
-async function fetchIntraday(symbol: string): Promise<ApiIntradayResult | null> {
+async function fetchIntraday(symbol: string): Promise<ApiIntradayResult> {
   const res = await fetch(`/api/intraday/${symbol}`, { cache: "no-store" });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    throw new Error(`Failed to load live exposure for ${symbol}: HTTP ${res.status}`);
+  }
   return res.json();
 }
 

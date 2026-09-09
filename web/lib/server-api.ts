@@ -19,6 +19,31 @@ export class ApiRequestError extends Error {
 }
 
 /**
+ * Server Component auth check that validates the session against the
+ * backend (`/api/v1/auth/session`) rather than assuming a present cookie is
+ * still a valid one — a cookie can outlive its backend session (expiry,
+ * revocation, logout elsewhere) and must never be read as "authenticated"
+ * on its own. Fails closed (unauthenticated) on any error.
+ */
+export async function fetchValidatedSession(): Promise<{ authenticated: boolean; walletAddress: string | null }> {
+  const token = await getSessionToken();
+  if (!token || !isBackendConfigured()) {
+    return { authenticated: false, walletAddress: null };
+  }
+  try {
+    const res = await fetch(backendUrl("/api/v1/auth/session"), {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return { authenticated: false, walletAddress: null };
+    const body = await res.json();
+    return { authenticated: Boolean(body.authenticated), walletAddress: body.wallet_address ?? null };
+  } catch {
+    return { authenticated: false, walletAddress: null };
+  }
+}
+
+/**
  * Server Component data fetcher that forwards the caller's session (if any)
  * as a Bearer header to the backend — this is what lets an authenticated
  * holder's server-rendered page actually see holder-only data, instead of

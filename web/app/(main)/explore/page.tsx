@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { fetchAssetsAuthed } from "@/lib/server-api";
-import { getSessionToken } from "@/lib/bff";
+import { fetchAssetsAuthed, fetchValidatedSession } from "@/lib/server-api";
 import type { ApiAsset } from "@/lib/types";
 import AssetGrid from "@/components/explore/AssetGrid";
 
@@ -11,7 +10,10 @@ export const metadata: Metadata = {
 
 export default async function ExplorePage() {
   let assets: ApiAsset[] = [];
-  const authenticated = Boolean(await getSessionToken());
+  // Validated against the backend session, not just cookie presence — a
+  // cookie can outlive its backend session (expiry, revocation, logout
+  // elsewhere).
+  const { authenticated } = await fetchValidatedSession();
 
   try {
     // Forwards the session (if any) so a verified holder sees the full

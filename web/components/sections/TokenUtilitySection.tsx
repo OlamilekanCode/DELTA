@@ -2,24 +2,26 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 
-type FeatureStatus = "available" | "soon" | "future";
+type FeatureStatus = "available" | "pending_config" | "soon" | "future";
 
 const features: { label: string; status: FeatureStatus; note: string; desc: string }[] = [
-  { label: "Exposure Scores",           status: "available", note: "Live now",              desc: "Signed Pearson correlation score across 8 stocks × 30 crypto" },
-  { label: "Exposure Graph",            status: "available", note: "Live now",              desc: "Interactive graph of stock ↔ crypto relationships" },
-  { label: "Price History",             status: "available", note: "Live now",              desc: "90-day daily OHLCV for all assets in the universe" },
-  { label: "Portfolio Exposure",        status: "soon",      note: "Coming soon",           desc: "Wallet-level exposure breakdown and weighted score" },
-  { label: "Advanced Exposure Scores",  status: "soon",      note: "Coming soon",           desc: "Extended universe, finer precision, longer lookback windows" },
-  { label: "Deeper Graph Levels",       status: "soon",      note: "Coming soon",           desc: "Expand beyond top-12 connections per stock" },
-  { label: "Real-Time Alerts",          status: "soon",      note: "Coming soon",           desc: "Score change notifications" },
-  { label: "Automated Baskets",         status: "future",    note: "Future",                desc: "Thematic index baskets by exposure cluster" },
-  { label: "Developer API",             status: "future",    note: "Future",                desc: "REST API for programmatic access" },
+  { label: "Exposure Scores",           status: "available",      note: "Live now",              desc: "Signed Pearson correlation score — 8 stocks × 30 crypto free, 20 × 100 for verified holders" },
+  { label: "Exposure Graph",            status: "available",      note: "Live now",              desc: "Interactive graph of stock ↔ crypto relationships" },
+  { label: "Price History",             status: "available",      note: "Live now",              desc: "90-day daily OHLCV for all assets in the universe" },
+  { label: "Extended Universe",         status: "available",      note: "Holder access",         desc: "20 stocks × 100 crypto assets, unlocked for verified $SynthEx holders" },
+  { label: "Portfolio Exposure",        status: "pending_config", note: "Launches with token",   desc: "Tiered wallet exposure summary, detailed breakdown and sector analysis" },
+  { label: "Advanced Portfolio Graphs", status: "soon",           note: "Coming soon",           desc: "Deeper historical portfolio charts for the $1,000+ tier" },
+  { label: "Deeper Graph Levels",       status: "soon",           note: "Coming soon",           desc: "Expand beyond top-12 connections per stock" },
+  { label: "Real-Time Alerts",          status: "soon",           note: "Coming soon",           desc: "Score change notifications" },
+  { label: "Automated Baskets",         status: "future",         note: "Future",                desc: "Thematic index baskets by exposure cluster" },
+  { label: "Developer API",             status: "future",         note: "Future",                desc: "REST API for programmatic access" },
 ];
 
 const statusConfig = {
-  available: { color: "#71F79F", bg: "rgba(113,247,159,0.08)", border: "rgba(113,247,159,0.25)", dot: "#71F79F" },
-  soon:      { color: "#F4C95D", bg: "rgba(244,201,93,0.08)",  border: "rgba(244,201,93,0.25)",  dot: "#F4C95D" },
-  future:    { color: "#6B7280", bg: "rgba(107,114,128,0.08)", border: "rgba(107,114,128,0.2)",  dot: "#6B7280" },
+  available:      { color: "#71F79F", bg: "rgba(113,247,159,0.08)", border: "rgba(113,247,159,0.25)", dot: "#71F79F" },
+  pending_config: { color: "#3D7BFF", bg: "rgba(61,123,255,0.08)",  border: "rgba(61,123,255,0.25)",  dot: "#3D7BFF" },
+  soon:           { color: "#F4C95D", bg: "rgba(244,201,93,0.08)",  border: "rgba(244,201,93,0.25)",  dot: "#F4C95D" },
+  future:         { color: "#6B7280", bg: "rgba(107,114,128,0.08)", border: "rgba(107,114,128,0.2)",  dot: "#6B7280" },
 } as const;
 
 export default function TokenUtilitySection() {
@@ -71,7 +73,7 @@ export default function TokenUtilitySection() {
             transition={{ duration: 0.6, delay: 0.1 }}
           >
             <p className="max-w-sm font-mono text-sm leading-relaxed text-muted">
-              Hold $SynthEx to unlock advanced analytics when they launch. Free users can explore the public Exposure Scores and Graph today.
+              Hold $SynthEx to unlock the full 20 × 100 asset universe and tiered portfolio exposure analysis. Free users can explore the public Exposure Scores and Graph today.
             </p>
           </motion.div>
         </div>
