@@ -69,6 +69,7 @@ python -m app.ingestion.commands refresh-intraday        # batched Marketstack +
 python -m app.ingestion.commands recompute-scores
 python -m app.ingestion.commands refresh-all             # stock EOD + crypto history + scores + cleanup
 python -m app.ingestion.commands cleanup-old-data
+python -m app.ingestion.commands refresh-portfolio-catalogue  # verified on-chain contract catalogue — CoinGecko, curated aliases, Robinhood stock tokens
 ```
 
 ---

@@ -12,10 +12,14 @@ Three job types:
                                                  market is open)
   POST /api/v1/cron/refresh-history-and-scores  Tuesday/Friday after close
                                                  (also runs retention cleanup)
+  POST /api/v1/cron/refresh-portfolio-catalogue Infrequent (e.g. daily) —
+                                                 syncs verified on-chain
+                                                 contract aliases
 
 The quote and history endpoints share the "ingestion" advisory lock so they
 can never overlap. Intraday refresh uses its own distinct lock ("intraday")
-so it isn't serialized behind the other two.
+so it isn't serialized behind the other two. Portfolio catalogue sync uses
+its own lock ("portfolio-catalogue") for the same reason.
 
 A genuine job failure (every provider call failed, or the job raised) returns
 a non-2xx status — callers must never see HTTP 200 with ok:false for a real
@@ -35,6 +39,7 @@ from app.ingestion.commands import (
     cmd_refresh_crypto_history,
     cmd_refresh_crypto_quotes,
     cmd_refresh_intraday,
+    cmd_refresh_portfolio_catalogue,
     cmd_refresh_stock_eod,
 )
 from app.ingestion.lock import JobAlreadyRunningError, advisory_lock
@@ -42,6 +47,7 @@ from app.ingestion.lock import JobAlreadyRunningError, advisory_lock
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+_PORTFOLIO_CATALOGUE_LOCK_NAME = "portfolio-catalogue"
 
 _LOCK_NAME = "ingestion"
 _INTRADAY_LOCK_NAME = "intraday"
@@ -211,3 +217,38 @@ async def trigger_refresh_intraday(
             detail={"command": "refresh-intraday", "counts": counts, "reason": "no_intraday_scores_recomputed"},
         )
     return {"ok": True, "command": "refresh-intraday", "counts": counts}
+
+
+@router.post("/cron/refresh-portfolio-catalogue")
+async def trigger_refresh_portfolio_catalogue(
+    x_cron_secret: str = Header(default=""),
+) -> dict:
+    """Sync the verified on-chain contract catalogue (CoinGecko Ethereum/Base
+    aliases, curated wrapped-token aliases, Robinhood stock-token registry).
+    Meant to run infrequently (e.g. daily) — the catalogue changes rarely.
+    Uses its own advisory lock so it never queues behind the quote/history
+    jobs. A single source failing never fails the whole job — each source
+    preserves its own previously-synced rows independently.
+    """
+    _check_secret(x_cron_secret)
+    try:
+        async with advisory_lock(_PORTFOLIO_CATALOGUE_LOCK_NAME):
+            counts = await cmd_refresh_portfolio_catalogue()
+    except JobAlreadyRunningError as e:
+        return {"ok": False, "skipped": True, "message": str(e)}
+    except Exception:
+        log.exception("refresh-portfolio-catalogue failed unexpectedly")
+        raise HTTPException(
+            status_code=502,
+            detail={"command": "refresh-portfolio-catalogue", "error": "internal_error"},
+        ) from None
+
+    any_source_failed = any(
+        isinstance(v, dict) and v.get("failed") for v in counts.values()
+    )
+    if any_source_failed:
+        raise HTTPException(
+            status_code=502,
+            detail={"command": "refresh-portfolio-catalogue", "counts": counts},
+        )
+    return {"ok": True, "command": "refresh-portfolio-catalogue", "counts": counts}

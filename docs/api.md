@@ -196,8 +196,8 @@ All require authentication.
 
 | Method | Path | Notes |
 |--------|------|-------|
-| `GET` | `/portfolio/exposure` | Query `stock=SYMBOL` for a single stock, or omitted for a ranked summary across every stock with data. `status: "suspended"` when the verified tier is retained but the current `$SynthEx` balance has dropped below the holder threshold. |
-| `POST` | `/portfolio/refresh` | Refreshes on-chain wallet positions from the configured contract list. No-op (not an error) until contracts are populated. |
+| `GET` | `/portfolio/exposure` | Query `stock=SYMBOL` for a single stock, or omitted for a ranked summary across every stock with data. `status: "suspended"` when the verified tier is retained but the current `$SynthEx` balance has dropped below the holder threshold. Response separates `portfolio_exposure_score` (crypto correlation), `direct_exposure_usd`/`direct_holdings` (Robinhood Stock Token holdings — literal, not correlation-based) and `cash_usd`/`cash_holdings` (stablecoins — zero correlation, still counted in `total_usd_value`) — never blended into one figure. Rate-limited to 10 requests/minute per IP. |
+| `POST` | `/portfolio/refresh` | Refreshes on-chain wallet positions from the verified contract catalogue (`portfolio_asset_contracts`), batched through Multicall3 where available. No-op (not an error) until at least one verified contract exists. Served from cache (no RPC call) when the wallet was refreshed within the last 30 seconds. Rate-limited to 10 requests/minute per IP. |
 
 ---
 

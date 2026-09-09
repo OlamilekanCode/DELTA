@@ -6,6 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
+from app.models.intraday_exposure_score import IntradayExposureScore
+from app.models.portfolio_contract import PortfolioContract
+from app.models.price import DailyPrice
 from app.models.quote import AssetQuote
 from app.models.wallet_position import CachedWalletPosition
 from app.services.blockchain import MockRpcProvider
@@ -16,7 +19,25 @@ from app.services.portfolio import (
     refresh_wallet_positions,
     shape_portfolio_response,
 )
-from app.services.portfolio_assets import NATIVE, PortfolioAssetContract
+from app.services.portfolio_assets import NATIVE
+
+
+async def _seed_portfolio_contract(
+    db: AsyncSession, chain_id: int, contract_address: str, decimals: int, symbol: str,
+    verified: bool = True, active: bool = True, contract_type: str = "erc20",
+) -> PortfolioContract:
+    """Insert a verified PortfolioContract row directly — the database-backed
+    replacement for the old static PortfolioAssetContract dataclass."""
+    asset = (await db.execute(select(Asset).where(Asset.symbol == symbol))).scalar_one()
+    now = datetime.now(UTC)
+    row = PortfolioContract(
+        asset_id=asset.id, chain_id=chain_id, contract_address=contract_address.lower(),
+        contract_type=contract_type, decimals=decimals, source="curated_alias",
+        verified=verified, active=active, created_at=now, updated_at=now,
+    )
+    db.add(row)
+    await db.commit()
+    return row
 
 
 def test_tier_boundary_locked_below_50() -> None:
@@ -86,7 +107,13 @@ def test_shape_summary_single_stock_query_hides_contributions() -> None:
         "data_ts": None,
     }
     shaped = shape_portfolio_response("summary", exposure)
-    assert shaped == {"portfolio_exposure_score": 0.42, "stocks_covered": 1, "data_ts": None}
+    assert shaped == {
+        "portfolio_exposure_score": 0.42,
+        "stocks_covered": 1,
+        "live_portfolio_exposure_score": None,
+        "live_status": None,
+        "data_ts": None,
+    }
 
 
 def test_shape_detailed_passes_through_unchanged() -> None:
@@ -155,6 +182,20 @@ async def _seed_score(db: AsyncSession, stock_symbol: str, crypto_symbol: str, s
     await db.commit()
 
 
+async def _seed_intraday_score(
+    db: AsyncSession, stock_symbol: str, crypto_symbol: str, score: float, data_quality: str = "ok"
+) -> None:
+    stock = (await db.execute(select(Asset).where(Asset.symbol == stock_symbol, Asset.asset_type == "stock"))).scalar_one()
+    crypto = (await db.execute(select(Asset).where(Asset.symbol == crypto_symbol))).scalar_one()
+    now = datetime.now(UTC)
+    db.add(IntradayExposureScore(
+        stock_id=stock.id, crypto_id=crypto.id, score=score, observations=90,
+        interval="30m", window_sessions=20, data_ts=now, computed_at=now,
+        model_version="pearson_intraday_v1", is_demo=True, data_quality=data_quality,
+    ))
+    await db.commit()
+
+
 @pytest.mark.asyncio
 async def test_compute_portfolio_exposure_no_positions_returns_honest_empty(db: AsyncSession) -> None:
     result = await compute_portfolio_exposure(db, WALLET)
@@ -187,6 +228,66 @@ async def test_compute_portfolio_exposure_signed_weighted_score(db: AsyncSession
     result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
     # 0.5 * 0.8 + 0.5 * -0.4 = 0.2
     assert result["portfolio_exposure_score"] == pytest.approx(0.2, rel=1e-3)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_live_score_calculated_separately(db: AsyncSession) -> None:
+    """Historical and intraday portfolio exposure must be calculated
+    independently — a different live score must never leak into or
+    overwrite the historical figure, and vice versa."""
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_quote(db, "ETH", 4_000.0)
+    await _seed_position(db, "BTC", 1.0)  # $100,000
+    await _seed_position(db, "ETH", 25.0)  # $100,000
+    await _seed_score(db, "NVDA", "BTC", 0.8)
+    await _seed_score(db, "NVDA", "ETH", -0.4)
+    await _seed_intraday_score(db, "NVDA", "BTC", 0.1)
+    await _seed_intraday_score(db, "NVDA", "ETH", 0.3)
+
+    result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
+    assert result["portfolio_exposure_score"] == pytest.approx(0.2, rel=1e-3)
+    # 0.5 * 0.1 + 0.5 * 0.3 = 0.2 (coincidentally equal — asserted via the
+    # distinct 0.1/0.3 intraday inputs, not by comparing to the historical field)
+    assert result["live_portfolio_exposure_score"] == pytest.approx(0.2, rel=1e-3)
+    assert result["live_status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_live_collecting_data_when_pair_not_ready(db: AsyncSession) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+    await _seed_score(db, "NVDA", "BTC", 0.8)
+    await _seed_intraday_score(db, "NVDA", "BTC", 0.5, data_quality="collecting_data")
+
+    result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
+    assert result["portfolio_exposure_score"] == pytest.approx(0.8, rel=1e-3)
+    assert result["live_portfolio_exposure_score"] is None
+    assert result["live_status"] == "collecting_data"
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_live_no_data_when_never_scored(db: AsyncSession) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+    await _seed_score(db, "NVDA", "BTC", 0.8)
+
+    result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
+    assert result["live_portfolio_exposure_score"] is None
+    assert result["live_status"] == "no_data"
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_live_ranked_only_includes_ready_stocks(db: AsyncSession) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+    await _seed_score(db, "NVDA", "BTC", 0.8)
+    await _seed_score(db, "TSLA", "BTC", -0.5)
+    await _seed_intraday_score(db, "NVDA", "BTC", 0.6)
+    # TSLA has no intraday row at all — must be excluded from live_ranked.
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    live_stocks = {r["stock"] for r in result["live_ranked"]}
+    assert live_stocks == {"NVDA"}
 
 
 @pytest.mark.asyncio
@@ -316,16 +417,151 @@ async def test_compute_portfolio_exposure_ranked_summary_sorted_by_magnitude(db:
     assert ranked_stocks[0] == "TSLA"  # |-0.9| > |0.3|
 
 
+# ── Direct (stock token) / synthetic (crypto) / cash (stablecoin) split ────
+
+async def _seed_stablecoin_position(db: AsyncSession, symbol: str, quantity: float, decimals: int = 6) -> Asset:
+    asset = (await db.execute(select(Asset).where(Asset.symbol == symbol))).scalar_one()
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=8453, contract_address=f"0x{symbol.lower()}stable",
+        asset_id=asset.id, quantity_raw=str(int(quantity * 10**decimals)), decimals=decimals,
+        block_number=1, updated_at=datetime.now(UTC),
+    ))
+    await db.commit()
+    return asset
+
+
+async def _seed_stock_token_position(
+    db: AsyncSession, symbol: str, quantity: float, price: float,
+    current_multiplier: float | None = None, decimals: int = 18,
+) -> Asset:
+    """Seeds a robinhood_stock PortfolioContract, a matching DailyPrice for
+    the underlying stock, and a CachedWalletPosition holding it."""
+    from datetime import date as date_cls
+
+    asset = (await db.execute(select(Asset).where(Asset.symbol == symbol))).scalar_one()
+    existing_price = (await db.execute(
+        select(DailyPrice).where(DailyPrice.asset_id == asset.id, DailyPrice.date == date_cls.today().isoformat())
+    )).scalar_one_or_none()
+    if existing_price:
+        existing_price.close = price
+    else:
+        db.add(DailyPrice(asset_id=asset.id, date=date_cls.today().isoformat(), close=price, is_demo=True))
+    await db.commit()
+
+    contract_address = f"0x{symbol.lower()}stocktoken"
+    await _seed_portfolio_contract(
+        db, 4663, contract_address, decimals, symbol, contract_type="robinhood_stock",
+    )
+    if current_multiplier is not None:
+        row = (await db.execute(
+            select(PortfolioContract).where(
+                PortfolioContract.chain_id == 4663, PortfolioContract.contract_address == contract_address
+            )
+        )).scalar_one()
+        row.current_multiplier = current_multiplier
+        await db.commit()
+
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=4663, contract_address=contract_address,
+        asset_id=asset.id, quantity_raw=str(int(quantity * 10**decimals)), decimals=decimals,
+        block_number=1, updated_at=datetime.now(UTC),
+    ))
+    await db.commit()
+    return asset
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_stablecoin_treated_as_cash(db: AsyncSession) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+    await _seed_stablecoin_position(db, "USDC", 500.0)
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["cash_usd"] == pytest.approx(500.0, rel=1e-6)
+    assert result["total_usd_value"] == pytest.approx(100_500.0, rel=1e-6)
+    assert any(h["symbol"] == "USDC" for h in result["cash_holdings"])
+    # Stablecoins never enter the correlation weight list.
+    assert not any(a["symbol"] == "USDC" for a in result["assets"])
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_stock_token_applies_multiplier(db: AsyncSession) -> None:
+    """A 2:1 forward-split multiplier must double the effective share
+    count used for valuation — the raw on-chain balance alone would
+    undervalue the holding by half."""
+    await _seed_stock_token_position(db, "NVDA", quantity=10.0, price=100.0, current_multiplier=2.0)
+
+    result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
+    # 10 raw tokens * 2.0 multiplier * $100 = $2000, not $1000.
+    assert result["direct_exposure_usd"] == pytest.approx(2000.0, rel=1e-6)
+    assert result["direct_holding_for_stock"]["symbol"] == "NVDA"
+    assert result["direct_holding_for_stock"]["usd_value"] == pytest.approx(2000.0, rel=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_stock_token_no_multiplier_uses_raw_balance(db: AsyncSession) -> None:
+    await _seed_stock_token_position(db, "NVDA", quantity=10.0, price=100.0, current_multiplier=None)
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["direct_exposure_usd"] == pytest.approx(1000.0, rel=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_direct_and_synthetic_reported_separately(db: AsyncSession) -> None:
+    """A wallet holding both a stock token and crypto must never blend the
+    two into one score — direct ownership and correlation-based synthetic
+    exposure are fundamentally different things."""
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)  # $100,000 crypto
+    await _seed_stock_token_position(db, "NVDA", quantity=10.0, price=100.0)  # $1,000 direct
+    await _seed_score(db, "TSLA", "BTC", 0.5)
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["total_usd_value"] == pytest.approx(101_000.0, rel=1e-6)
+    assert result["direct_exposure_usd"] == pytest.approx(1000.0, rel=1e-6)
+    assert any(h["symbol"] == "NVDA" for h in result["direct_holdings"])
+    # BTC still drives the synthetic weight list; NVDA (direct) never does.
+    assert any(a["symbol"] == "BTC" for a in result["assets"])
+    assert not any(a["symbol"] == "NVDA" for a in result["assets"])
+    # BTC's weight is diluted by the total (crypto+direct) denominator, not
+    # just the crypto subtotal — 100000/101000, not 100000/100000.
+    btc_weight = next(a["weight"] for a in result["assets"] if a["symbol"] == "BTC")
+    assert btc_weight == pytest.approx(100_000 / 101_000, rel=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_synthex_excluded_from_all_buckets(db: AsyncSession, monkeypatch) -> None:
+    """$SynthEx is an access/entitlement token — even if it somehow shows
+    up as a cached position, it must never feed exposure math at all."""
+    import app.services.portfolio as portfolio_module
+    from app.config import Settings
+
+    synthex_address = "0x" + "5e" * 20
+    settings = Settings(synthex_token_address=synthex_address, database_url="sqlite+aiosqlite:///./test.db")
+    monkeypatch.setattr(portfolio_module, "get_settings", lambda: settings)
+
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+    eth = (await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one()
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=4663, contract_address=synthex_address,
+        asset_id=eth.id, quantity_raw=str(10**18), decimals=18,
+        block_number=1, updated_at=datetime.now(UTC),
+    ))
+    await db.commit()
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    # Only the BTC position counts — $SynthEx contributes nothing anywhere.
+    assert result["total_usd_value"] == pytest.approx(100_000.0, rel=1e-6)
+
+
 @pytest.mark.asyncio
 async def test_refresh_wallet_positions_reads_native_and_erc20(db: AsyncSession, monkeypatch) -> None:
     import app.services.portfolio as portfolio_module
 
+    btc_contract = "0x" + "bb" * 20  # Multicall-encoded target must be valid hex
     btc = (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one()
-    contracts = [
-        PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH"),
-        PortfolioAssetContract(chain_id=8453, contract_address="0xbtccontract", decimals=8, symbol="BTC"),
-    ]
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
+    await _seed_portfolio_contract(db, 8453, btc_contract, 8, "BTC")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")
@@ -335,7 +571,7 @@ async def test_refresh_wallet_positions_reads_native_and_erc20(db: AsyncSession,
         chain_id=8453,
         block_number=42,
         native_balances={WALLET.lower(): 5 * 10**18},
-        balances={("0xbtccontract", WALLET.lower()): 2 * 10**8},
+        balances={(btc_contract, WALLET.lower()): 2 * 10**8},
     )
     result = await refresh_wallet_positions(db, WALLET, rpc_by_chain={8453: mock})
     assert result.status == "ok"
@@ -348,8 +584,8 @@ async def test_refresh_wallet_positions_reads_native_and_erc20(db: AsyncSession,
     rows = (await db.execute(select(CachedWalletPosition).where(CachedWalletPosition.wallet_address == WALLET.lower()))).scalars().all()
     by_contract = {r.contract_address: r for r in rows}
     assert by_contract[NATIVE].quantity_raw == str(5 * 10**18)
-    assert by_contract["0xbtccontract"].quantity_raw == str(2 * 10**8)
-    assert by_contract["0xbtccontract"].asset_id == btc.id
+    assert by_contract[btc_contract].quantity_raw == str(2 * 10**8)
+    assert by_contract[btc_contract].asset_id == btc.id
     assert by_contract[NATIVE].block_number == 42
 
 
@@ -357,8 +593,7 @@ async def test_refresh_wallet_positions_reads_native_and_erc20(db: AsyncSession,
 async def test_refresh_wallet_positions_skips_chains_without_rpc(db: AsyncSession, monkeypatch) -> None:
     import app.services.portfolio as portfolio_module
 
-    contracts = [PortfolioAssetContract(chain_id=1, contract_address=NATIVE, decimals=18, symbol="ETH")]
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 1 else [])
+    await _seed_portfolio_contract(db, 1, NATIVE, 18, "ETH", contract_type="native")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="1", database_url="sqlite+aiosqlite:///./test.db")
@@ -377,11 +612,8 @@ async def test_refresh_wallet_positions_skips_one_chain_when_another_is_configur
     chain 8453 still refreshes normally."""
     import app.services.portfolio as portfolio_module
 
-    contracts_by_chain = {
-        1: [PortfolioAssetContract(chain_id=1, contract_address=NATIVE, decimals=18, symbol="ETH")],
-        8453: [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")],
-    }
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts_by_chain.get(chain_id, []))
+    await _seed_portfolio_contract(db, 1, NATIVE, 18, "ETH", contract_type="native")
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="1,8453", database_url="sqlite+aiosqlite:///./test.db")
@@ -402,8 +634,7 @@ async def test_refresh_wallet_positions_distrusts_wrong_chain_id(db: AsyncSessio
     registered for must never have its balances trusted."""
     import app.services.portfolio as portfolio_module
 
-    contracts = [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")]
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")
@@ -432,8 +663,7 @@ async def test_refresh_wallet_positions_not_configured_with_empty_catalogue(db: 
 async def test_refresh_wallet_positions_preserves_cache_on_rpc_failure(db: AsyncSession, monkeypatch) -> None:
     import app.services.portfolio as portfolio_module
 
-    contracts = [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")]
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")
@@ -470,8 +700,7 @@ async def test_refresh_wallet_positions_serves_cache_within_30s(db: AsyncSession
     reads across every configured chain x contract."""
     import app.services.portfolio as portfolio_module
 
-    contracts = [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")]
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")

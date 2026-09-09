@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     ethereum_rpc_url: str = ""
     base_rpc_url: str = ""
 
+    # Multicall3 is deployed at the same well-known address on Ethereum and
+    # Base by default (see services/multicall.py) — this only needs setting
+    # to add/override a chain, e.g. Robinhood Chain once its Multicall3
+    # deployment (if any) is confirmed: "4663:0x...".
+    multicall3_address_overrides: str = ""  # comma-separated "chain_id:address" pairs
+
     cron_secret: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -83,6 +89,20 @@ class Settings(BaseSettings):
     @property
     def parsed_portfolio_chain_ids(self) -> set[int]:
         return {int(c.strip()) for c in self.portfolio_chain_ids.split(",") if c.strip()}
+
+    @property
+    def parsed_multicall3_address_overrides(self) -> dict[int, str]:
+        overrides: dict[int, str] = {}
+        for entry in self.multicall3_address_overrides.split(","):
+            entry = entry.strip()
+            if not entry or ":" not in entry:
+                continue
+            chain_id_str, address = entry.split(":", 1)
+            try:
+                overrides[int(chain_id_str.strip())] = address.strip().lower()
+            except ValueError:
+                continue
+        return overrides
 
 
 @lru_cache
