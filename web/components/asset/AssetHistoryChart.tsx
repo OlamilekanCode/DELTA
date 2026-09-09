@@ -1,8 +1,15 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { IChartApi } from "lightweight-charts";
+import type { IChartApi, UTCTimestamp } from "lightweight-charts";
 import type { ApiHistoryPoint } from "@/lib/types";
+
+// Full ts (intraday points) sorts/dedupes correctly across the day; a
+// date-only daily point is treated as its UTC midnight for comparison.
+function toEpochSeconds(p: ApiHistoryPoint): number {
+  const iso = p.ts || `${p.date}T00:00:00Z`;
+  return Math.floor(new Date(iso).getTime() / 1000);
+}
 
 interface Props {
   prices: ApiHistoryPoint[];
@@ -40,10 +47,23 @@ export default function AssetHistoryChart({ prices, color = "#9B7BFF", label }: 
         priceLineVisible: false,
       });
 
-      const data = prices.map((p) => ({
-        time: p.date as `${number}-${number}-${number}`,
-        value: p.close,
-      }));
+      // Sort chronologically and drop duplicate timestamps before handing
+      // data to the series — lightweight-charts requires strictly
+      // ascending, unique times and throws on either violation.
+      const seen = new Set<number>();
+      const data = [...prices]
+        .sort((a, b) => toEpochSeconds(a) - toEpochSeconds(b))
+        .filter((p) => {
+          const epoch = toEpochSeconds(p);
+          if (seen.has(epoch)) return false;
+          seen.add(epoch);
+          return true;
+        })
+        .map((p) =>
+          p.ts
+            ? { time: toEpochSeconds(p) as UTCTimestamp, value: p.close }
+            : { time: p.date as `${number}-${number}-${number}`, value: p.close }
+        );
       series.setData(data);
       chart.timeScale().fitContent();
 
