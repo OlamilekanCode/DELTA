@@ -213,6 +213,20 @@ async def sync_robinhood_stock_tokens(db: AsyncSession, rh: RobinhoodAssetProvid
     return counts
 
 
+async def get_verified_contracts_for_chain(db: AsyncSession, chain_id: int) -> list[PortfolioContract]:
+    """Only verified, active rows are ever handed to the wallet reader —
+    a curated alias sitting at verified=False is invisible here until a
+    human confirms it."""
+    result = await db.execute(
+        select(PortfolioContract).where(
+            PortfolioContract.chain_id == chain_id,
+            PortfolioContract.verified.is_(True),
+            PortfolioContract.active.is_(True),
+        )
+    )
+    return list(result.scalars().all())
+
+
 async def sync_portfolio_catalogue(
     db: AsyncSession, cg: CoinGeckoProvider, rh: RobinhoodAssetProvider
 ) -> dict:

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
+from app.models.portfolio_contract import PortfolioContract
 from app.models.quote import AssetQuote
 from app.models.wallet_position import CachedWalletPosition
 from app.services.blockchain import MockRpcProvider
@@ -16,7 +17,25 @@ from app.services.portfolio import (
     refresh_wallet_positions,
     shape_portfolio_response,
 )
-from app.services.portfolio_assets import NATIVE, PortfolioAssetContract
+from app.services.portfolio_assets import NATIVE
+
+
+async def _seed_portfolio_contract(
+    db: AsyncSession, chain_id: int, contract_address: str, decimals: int, symbol: str,
+    verified: bool = True, active: bool = True, contract_type: str = "erc20",
+) -> PortfolioContract:
+    """Insert a verified PortfolioContract row directly — the database-backed
+    replacement for the old static PortfolioAssetContract dataclass."""
+    asset = (await db.execute(select(Asset).where(Asset.symbol == symbol))).scalar_one()
+    now = datetime.now(UTC)
+    row = PortfolioContract(
+        asset_id=asset.id, chain_id=chain_id, contract_address=contract_address.lower(),
+        contract_type=contract_type, decimals=decimals, source="curated_alias",
+        verified=verified, active=active, created_at=now, updated_at=now,
+    )
+    db.add(row)
+    await db.commit()
+    return row
 
 
 def test_tier_boundary_locked_below_50() -> None:
@@ -320,12 +339,10 @@ async def test_compute_portfolio_exposure_ranked_summary_sorted_by_magnitude(db:
 async def test_refresh_wallet_positions_reads_native_and_erc20(db: AsyncSession, monkeypatch) -> None:
     import app.services.portfolio as portfolio_module
 
+    btc_contract = "0x" + "bb" * 20  # Multicall-encoded target must be valid hex
     btc = (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one()
-    contracts = [
-        PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH"),
-        PortfolioAssetContract(chain_id=8453, contract_address="0xbtccontract", decimals=8, symbol="BTC"),
-    ]
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
+    await _seed_portfolio_contract(db, 8453, btc_contract, 8, "BTC")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")
@@ -335,7 +352,7 @@ async def test_refresh_wallet_positions_reads_native_and_erc20(db: AsyncSession,
         chain_id=8453,
         block_number=42,
         native_balances={WALLET.lower(): 5 * 10**18},
-        balances={("0xbtccontract", WALLET.lower()): 2 * 10**8},
+        balances={(btc_contract, WALLET.lower()): 2 * 10**8},
     )
     result = await refresh_wallet_positions(db, WALLET, rpc_by_chain={8453: mock})
     assert result.status == "ok"
@@ -348,8 +365,8 @@ async def test_refresh_wallet_positions_reads_native_and_erc20(db: AsyncSession,
     rows = (await db.execute(select(CachedWalletPosition).where(CachedWalletPosition.wallet_address == WALLET.lower()))).scalars().all()
     by_contract = {r.contract_address: r for r in rows}
     assert by_contract[NATIVE].quantity_raw == str(5 * 10**18)
-    assert by_contract["0xbtccontract"].quantity_raw == str(2 * 10**8)
-    assert by_contract["0xbtccontract"].asset_id == btc.id
+    assert by_contract[btc_contract].quantity_raw == str(2 * 10**8)
+    assert by_contract[btc_contract].asset_id == btc.id
     assert by_contract[NATIVE].block_number == 42
 
 
@@ -357,8 +374,7 @@ async def test_refresh_wallet_positions_reads_native_and_erc20(db: AsyncSession,
 async def test_refresh_wallet_positions_skips_chains_without_rpc(db: AsyncSession, monkeypatch) -> None:
     import app.services.portfolio as portfolio_module
 
-    contracts = [PortfolioAssetContract(chain_id=1, contract_address=NATIVE, decimals=18, symbol="ETH")]
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 1 else [])
+    await _seed_portfolio_contract(db, 1, NATIVE, 18, "ETH", contract_type="native")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="1", database_url="sqlite+aiosqlite:///./test.db")
@@ -377,11 +393,8 @@ async def test_refresh_wallet_positions_skips_one_chain_when_another_is_configur
     chain 8453 still refreshes normally."""
     import app.services.portfolio as portfolio_module
 
-    contracts_by_chain = {
-        1: [PortfolioAssetContract(chain_id=1, contract_address=NATIVE, decimals=18, symbol="ETH")],
-        8453: [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")],
-    }
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts_by_chain.get(chain_id, []))
+    await _seed_portfolio_contract(db, 1, NATIVE, 18, "ETH", contract_type="native")
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="1,8453", database_url="sqlite+aiosqlite:///./test.db")
@@ -402,8 +415,7 @@ async def test_refresh_wallet_positions_distrusts_wrong_chain_id(db: AsyncSessio
     registered for must never have its balances trusted."""
     import app.services.portfolio as portfolio_module
 
-    contracts = [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")]
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")
@@ -432,8 +444,7 @@ async def test_refresh_wallet_positions_not_configured_with_empty_catalogue(db: 
 async def test_refresh_wallet_positions_preserves_cache_on_rpc_failure(db: AsyncSession, monkeypatch) -> None:
     import app.services.portfolio as portfolio_module
 
-    contracts = [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")]
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")
@@ -470,8 +481,7 @@ async def test_refresh_wallet_positions_serves_cache_within_30s(db: AsyncSession
     reads across every configured chain x contract."""
     import app.services.portfolio as portfolio_module
 
-    contracts = [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")]
-    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
 
     from app.config import Settings
     settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")

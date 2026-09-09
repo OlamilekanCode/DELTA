@@ -23,10 +23,12 @@ from app.config import Settings, get_settings
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
 from app.models.portfolio import WalletEntitlement
+from app.models.portfolio_contract import PortfolioContract
 from app.models.quote import AssetQuote
 from app.models.wallet_position import CachedWalletPosition
 from app.services.blockchain import JsonRpcProvider, RpcProvider
-from app.services.portfolio_assets import NATIVE, contracts_for_chain
+from app.services.portfolio_catalog import get_verified_contracts_for_chain
+from app.services.wallet_reader import read_balances_batched
 
 # On-chain positions are refreshed only on explicit user action (never on an
 # ordinary page view — see refresh_wallet_positions), so a flat threshold is
@@ -145,9 +147,15 @@ def build_rpc_by_chain(settings: Settings) -> dict[int, RpcProvider]:
 async def refresh_wallet_positions(
     db: AsyncSession, wallet_address: str, rpc_by_chain: dict[int, RpcProvider] | None = None
 ) -> PortfolioRefreshResult:
-    """Read on-chain balances for every configured portfolio asset contract
-    and upsert `cached_wallet_positions`. Never called on ordinary portfolio
-    page requests — only from explicit/background refresh.
+    """Read on-chain balances for every verified portfolio asset contract
+    (see services/portfolio_catalog.get_verified_contracts_for_chain) and
+    upsert `cached_wallet_positions`. Never called on ordinary portfolio
+    page requests — only from explicit/background refresh, and floored to
+    once per PORTFOLIO_REFRESH_MIN_INTERVAL per wallet.
+
+    ERC-20 balances are read a handful of RPC calls per chain via
+    Multicall3 (see services/wallet_reader.py), not one call per token —
+    the native gas-token balance is always its own single direct call.
 
     `rpc_by_chain` is `None` in production: real providers are built from
     server-only config (`ROBINHOOD_RPC_URL`, `ETHEREUM_RPC_URL`,
@@ -170,7 +178,11 @@ async def refresh_wallet_positions(
     if settings.synthex_chain_id:
         chain_ids.add(settings.synthex_chain_id)
 
-    contracts_by_chain = {cid: contracts for cid in chain_ids if (contracts := contracts_for_chain(cid))}
+    contracts_by_chain: dict[int, list[PortfolioContract]] = {}
+    for cid in chain_ids:
+        contracts = await get_verified_contracts_for_chain(db, cid)
+        if contracts:
+            contracts_by_chain[cid] = contracts
     total_contracts = sum(len(c) for c in contracts_by_chain.values())
 
     if total_contracts == 0 or not rpc_by_chain:
@@ -221,19 +233,20 @@ async def refresh_wallet_positions(
             result.failed += len(contracts)
             continue
 
+        # A handful of RPC requests for this whole chain (native balance +
+        # chunked Multicall3 batches), never one request per token.
+        multicall_override = settings.parsed_multicall3_address_overrides.get(chain_id)
+        balances = await read_balances_batched(rpc, chain_id, wallet_lower, contracts, multicall_override)
+
         for contract in contracts:
-            try:
-                raw = (
-                    await rpc.get_native_balance(wallet_lower)
-                    if contract.contract_address == NATIVE
-                    else await rpc.get_erc20_balance(contract.contract_address, wallet_lower)
-                )
-            except Exception:
+            if contract.contract_address not in balances:
+                # Missing means that specific contract's read failed
+                # (allowFailure in the batch, or the fallback per-token call
+                # raised) — never treated as a confirmed zero, and the
+                # existing cached row for it is left untouched.
                 result.failed += 1
                 continue
-
-            asset_result = await db.execute(select(Asset).where(Asset.symbol == contract.symbol))
-            asset = asset_result.scalar_one_or_none()
+            raw = balances[contract.contract_address]
 
             existing_result = await db.execute(
                 select(CachedWalletPosition).where(
@@ -246,7 +259,7 @@ async def refresh_wallet_positions(
             if existing is not None:
                 existing.quantity_raw = str(raw)
                 existing.decimals = contract.decimals
-                existing.asset_id = asset.id if asset else None
+                existing.asset_id = contract.asset_id
                 existing.block_number = block_number
                 existing.updated_at = now
                 result.positions.append(existing)
@@ -255,7 +268,7 @@ async def refresh_wallet_positions(
                     wallet_address=wallet_lower,
                     chain_id=chain_id,
                     contract_address=contract.contract_address,
-                    asset_id=asset.id if asset else None,
+                    asset_id=contract.asset_id,
                     quantity_raw=str(raw),
                     decimals=contract.decimals,
                     block_number=block_number,
