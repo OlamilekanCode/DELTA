@@ -101,6 +101,7 @@ async def test_cmd_refresh_stock_eod_preserves_data_on_batch_failure(db: AsyncSe
 
 
 @pytest.mark.asyncio
+@pytest.mark.httpx_mock(can_send_already_matched_responses=True)
 async def test_fetch_eod_batch_chunks_to_stay_under_marketstack_row_limit(httpx_mock) -> None:
     """20 symbols * 90-day window would need limit=2000 in one call —
     Marketstack's /eod `limit` caps at 1000 and silently truncates beyond

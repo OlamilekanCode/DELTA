@@ -462,6 +462,41 @@ async def test_refresh_wallet_positions_preserves_cache_on_rpc_failure(db: Async
     assert row.quantity_raw == str(9 * 10**18)  # untouched by the failed refresh
 
 
+@pytest.mark.asyncio
+async def test_refresh_wallet_positions_serves_cache_within_30s(db: AsyncSession, monkeypatch) -> None:
+    """A second refresh within PORTFOLIO_REFRESH_MIN_INTERVAL must be served
+    from the cached rows, never re-hitting the RPC — an authenticated user
+    calling refresh repeatedly must not fan out into repeated on-chain
+    reads across every configured chain x contract."""
+    import app.services.portfolio as portfolio_module
+
+    contracts = [PortfolioAssetContract(chain_id=8453, contract_address=NATIVE, decimals=18, symbol="ETH")]
+    monkeypatch.setattr(portfolio_module, "contracts_for_chain", lambda chain_id: contracts if chain_id == 8453 else [])
+
+    from app.config import Settings
+    settings = Settings(portfolio_chain_ids="8453", database_url="sqlite+aiosqlite:///./test.db")
+    monkeypatch.setattr(portfolio_module, "get_settings", lambda: settings)
+
+    first_mock = MockRpcProvider(chain_id=8453, block_number=1, native_balances={WALLET.lower(): 5 * 10**18})
+    first = await refresh_wallet_positions(db, WALLET, rpc_by_chain={8453: first_mock})
+    assert first.status == "ok"
+    assert first.positions_refreshed == 1
+
+    # A different mock with a different balance — if this were actually
+    # queried, the cached result below would reflect 9 ETH instead of 5.
+    second_mock = MockRpcProvider(chain_id=8453, block_number=2, native_balances={WALLET.lower(): 9 * 10**18})
+    second = await refresh_wallet_positions(db, WALLET, rpc_by_chain={8453: second_mock})
+    assert second.status == "ok"
+    assert second.chains_attempted == 0  # never attempted — served from cache
+    assert len(second.positions) == 1
+    assert second.positions[0].quantity_raw == str(5 * 10**18)  # still the first mock's value
+
+    row = (await db.execute(
+        select(CachedWalletPosition).where(CachedWalletPosition.wallet_address == WALLET.lower())
+    )).scalar_one()
+    assert row.quantity_raw == str(5 * 10**18)  # DB untouched by the second (skipped) call
+
+
 # ── GET /api/v1/portfolio/exposure — server-side tier enforcement ──────────
 # Proves a summary-tier caller cannot retrieve detailed fields by calling the
 # API directly, regardless of what the frontend would or wouldn't render.
@@ -576,3 +611,41 @@ async def test_locked_tier_returns_no_analysis_data(client, db: AsyncSession, mo
     assert body["tier"] == "locked"
     for field_name in ("assets", "excluded", "ranked", "portfolio_exposure_score"):
         assert field_name not in body
+
+
+# ── Rate limiting — POST /portfolio/refresh, /entitlements/refresh, ────────
+# ── /entitlements/verify-purchase ───────────────────────────────────────────
+# Each can fan out into RPC work (or, for verify-purchase, a full
+# verification attempt per differently-invalid tx_hash) — proves the
+# IP-keyed enforce_rate_limit() actually returns 429 once each endpoint's
+# own limit is exceeded, not just that the limiter exists.
+
+@pytest.mark.asyncio
+async def test_portfolio_refresh_rate_limited_after_10_per_minute(client, db: AsyncSession, monkeypatch) -> None:
+    headers, _wallet = await _authenticated_holder(client, db, monkeypatch, tier="summary", cumulative_usd_cents=5_000)
+    for _ in range(10):
+        r = await client.post("/api/v1/portfolio/refresh", headers=headers)
+        assert r.status_code != 429
+    r = await client.post("/api/v1/portfolio/refresh", headers=headers)
+    assert r.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_entitlements_refresh_rate_limited_after_20_per_minute(client, db: AsyncSession, monkeypatch) -> None:
+    headers, _wallet = await _authenticated_holder(client, db, monkeypatch, tier="summary", cumulative_usd_cents=5_000)
+    for _ in range(20):
+        r = await client.post("/api/v1/entitlements/refresh", headers=headers)
+        assert r.status_code != 429
+    r = await client.post("/api/v1/entitlements/refresh", headers=headers)
+    assert r.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_rate_limited_after_10_per_minute(client, db: AsyncSession, monkeypatch) -> None:
+    headers, _wallet = await _authenticated_holder(client, db, monkeypatch, tier="summary", cumulative_usd_cents=5_000)
+    body = {"tx_hash": "0x" + "ab" * 32}
+    for _ in range(10):
+        r = await client.post("/api/v1/entitlements/verify-purchase", headers=headers, json=body)
+        assert r.status_code != 429
+    r = await client.post("/api/v1/entitlements/verify-purchase", headers=headers, json=body)
+    assert r.status_code == 429
