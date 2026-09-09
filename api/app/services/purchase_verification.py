@@ -9,6 +9,7 @@ is fully implemented and tested against a mocked RPC provider — only the
 production RPC endpoint and contract addresses are missing.
 """
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -24,6 +25,8 @@ from app.models.crypto_observation import CryptoQuoteObservation
 from app.models.purchase import ClaimedPurchaseTransaction
 from app.services.blockchain import JsonRpcProvider, RpcError, RpcProvider
 from app.services.portfolio import get_or_create_entitlement_in_transaction, get_tier
+
+log = logging.getLogger(__name__)
 
 NOT_CONFIGURED = {
     "status": "not_configured",
@@ -161,8 +164,11 @@ async def verify_purchase(
         current_block = await provider.get_block_number()
     except RpcError as e:
         return {"status": "rpc_error", "message": str(e)}
-    except Exception as e:  # noqa: BLE001 — any transport failure fails closed
-        return {"status": "rpc_error", "message": f"unexpected RPC failure: {e}"}
+    except Exception:  # noqa: BLE001 — any transport failure fails closed
+        # Never echo the raw exception — transport errors often embed the
+        # request URL verbatim, and ROBINHOOD_RPC_URL may carry an API key.
+        log.exception("Unexpected RPC failure during purchase verification")
+        return {"status": "rpc_error", "message": "Unexpected RPC failure"}
 
     if tx.hash.lower() != tx_hash.lower():
         return {"status": "invalid", "message": "RPC transaction hash does not match the submitted hash"}
@@ -197,16 +203,16 @@ async def verify_purchase(
     synthex_source_address: str | None = None
     weth_spent = 0
     weth_refunded = 0
-    for log in receipt.logs:
-        topics = log.get("topics") or []
+    for log_entry in receipt.logs:
+        topics = log_entry.get("topics") or []
         if not topics or topics[0].lower() != _TRANSFER_TOPIC:
             continue
         if len(topics) < 3:
             continue
-        log_address = (log.get("address") or "").lower()
+        log_address = (log_entry.get("address") or "").lower()
         from_addr = _decode_address_topic(topics[1])
         to_addr = _decode_address_topic(topics[2])
-        amount = _decode_uint(log.get("data", "0x"))
+        amount = _decode_uint(log_entry.get("data", "0x"))
 
         # Only a $SynthEx transfer that both lands in the wallet AND
         # originates from an approved router/pool counts — otherwise anyone

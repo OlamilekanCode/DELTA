@@ -300,6 +300,16 @@ async def test_verify_purchase_rejects_reverted_tx(db: AsyncSession, configured)
 
 
 @pytest.mark.asyncio
+async def test_verify_purchase_unexpected_rpc_failure_never_leaks_message(db: AsyncSession, configured) -> None:
+    """An unexpected transport error must never echo its raw text back —
+    it can embed the request URL, and ROBINHOOD_RPC_URL may carry an API key."""
+    mock = MockRpcProvider(raise_on_call=TimeoutError("secret-looking-rpc-detail"))
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "rpc_error"
+    assert "secret-looking-rpc-detail" not in result["message"]
+
+
+@pytest.mark.asyncio
 async def test_verify_purchase_rejects_wrong_chain(db: AsyncSession, configured) -> None:
     mock = _mock_provider(chain_id=1, logs=[_transfer_log(TOKEN, ROUTER, WALLET, 1)])
     result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)

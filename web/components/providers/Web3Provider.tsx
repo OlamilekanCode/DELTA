@@ -9,23 +9,25 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
 import { useState } from "react";
 import type React from "react";
+import { getConfiguredChainId, isWalletFullyConfigured } from "@/lib/wallet-config";
 
 const PROJECT_ID = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID ?? "";
 
 /**
  * Builds the Robinhood Chain network definition from environment variables —
- * never a hardcoded chain ID. Returns null (chain not configured) until both
- * NEXT_PUBLIC_SYNTHEX_CHAIN_ID and a public RPC URL are supplied.
+ * never a hardcoded chain ID. Returns null (chain not configured) unless the
+ * Reown project ID, the chain ID AND its public RPC URL are ALL present —
+ * see lib/wallet-config.ts for why these three must be checked together.
  *
  * NEXT_PUBLIC_SYNTHEX_RPC_URL is a separate, explicitly public RPC endpoint
  * for wallet-facing reads/chain-add prompts only — never the private
  * server-only ROBINHOOD_RPC_URL, which never reaches the frontend.
  */
 function buildRobinhoodChainNetwork(): AppKitNetwork | null {
-  const chainIdRaw = process.env.NEXT_PUBLIC_SYNTHEX_CHAIN_ID;
+  if (!isWalletFullyConfigured()) return null;
+  const chainId = getConfiguredChainId();
   const rpcUrl = process.env.NEXT_PUBLIC_SYNTHEX_RPC_URL;
-  const chainId = chainIdRaw ? Number(chainIdRaw) : NaN;
-  if (!Number.isFinite(chainId) || chainId <= 0 || !rpcUrl) return null;
+  if (chainId === null || !rpcUrl) return null;
 
   return defineChain({
     id: chainId,

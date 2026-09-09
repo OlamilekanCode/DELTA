@@ -13,7 +13,7 @@ sufficient again, with no new purchase required.
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -27,6 +27,13 @@ from app.models.quote import AssetQuote
 from app.models.wallet_position import CachedWalletPosition
 from app.services.blockchain import JsonRpcProvider, RpcProvider
 from app.services.portfolio_assets import NATIVE, contracts_for_chain
+
+# On-chain positions are refreshed only on explicit user action (never on an
+# ordinary page view — see refresh_wallet_positions), so a flat threshold is
+# used rather than a market-hours-aware one: there is no "market open" for a
+# wallet balance snapshot.
+POSITIONS_STALE_AFTER = timedelta(minutes=30)
+QUOTES_STALE_AFTER = timedelta(minutes=45)
 
 TIER_THRESHOLDS = {
     "summary": 5_000,    # $50.00
@@ -277,6 +284,7 @@ async def compute_portfolio_exposure(
             "assets": [],
             "excluded": [],
             "data_ts": None,
+            "positions_stale": True,
             "note": "No wallet positions found yet — refresh to read current on-chain holdings",
         }
 
@@ -285,7 +293,10 @@ async def compute_portfolio_exposure(
     total_usd = Decimal(0)
     valued: list[tuple[Asset, Decimal]] = []
     data_ts = max((p.updated_at for p in positions), default=None)
+    data_ts_aware = data_ts if (data_ts is None or data_ts.tzinfo is not None) else data_ts.replace(tzinfo=UTC)
+    positions_stale = data_ts_aware is None or (datetime.now(UTC) - data_ts_aware) > POSITIONS_STALE_AFTER
 
+    oldest_quote_ts: datetime | None = None
     for p in positions:
         if p.asset_id is None:
             excluded.append({"contract_address": p.contract_address, "reason": "unsupported_token"})
@@ -302,8 +313,12 @@ async def compute_portfolio_exposure(
         usd_value = qty * Decimal(str(quote_row.price_usd))
         if usd_value <= 0:
             continue
+        quote_ts = quote_row.ts if quote_row.ts.tzinfo is not None else quote_row.ts.replace(tzinfo=UTC)
+        oldest_quote_ts = quote_ts if oldest_quote_ts is None else min(oldest_quote_ts, quote_ts)
         valued.append((asset, usd_value))
         total_usd += usd_value
+
+    quotes_stale = oldest_quote_ts is None or (datetime.now(UTC) - oldest_quote_ts) > QUOTES_STALE_AFTER
 
     if total_usd <= 0:
         return {
@@ -311,10 +326,22 @@ async def compute_portfolio_exposure(
             "assets": [],
             "excluded": excluded,
             "data_ts": data_ts.isoformat() if data_ts else None,
+            "positions_stale": positions_stale,
+            "total_usd_value": 0.0,
             "note": "No valued positions — every holding is unsupported or missing a stored price",
         }
 
     weights = [(asset, usd_value / total_usd) for asset, usd_value in valued]
+    # Coverage: how much of the wallet's SUPPORTED, valued holdings this
+    # analysis actually represents — a result built from one small holding
+    # must never be presented as if it spoke for the whole wallet.
+    coverage = {
+        "total_usd_value": float(total_usd),
+        "supported_position_count": len(valued),
+        "excluded_position_count": len(excluded),
+        "positions_stale": positions_stale,
+        "quotes_stale": quotes_stale,
+    }
 
     if stock_symbol:
         stock_result = await db.execute(
@@ -330,6 +357,7 @@ async def compute_portfolio_exposure(
             "assets": contributing,
             "excluded": stock_excluded,
             "data_ts": data_ts.isoformat() if data_ts else None,
+            **coverage,
         }
 
     stocks_result = await db.execute(select(Asset).where(Asset.asset_type == "stock").order_by(Asset.symbol))
@@ -355,6 +383,7 @@ async def compute_portfolio_exposure(
         "category_exposure": category_exposure,
         "excluded": excluded,
         "data_ts": data_ts.isoformat() if data_ts else None,
+        **coverage,
     }
 
 
@@ -400,4 +429,9 @@ def _summary_shape(exposure: dict) -> dict:
         }
     if exposure.get("note"):
         shaped["note"] = exposure["note"]
+    # Freshness is safe to surface at every tier — it is not detailed
+    # financial data, just a signal that the user should refresh.
+    for key in ("positions_stale", "quotes_stale", "total_usd_value"):
+        if key in exposure:
+            shaped[key] = exposure[key]
     return shaped

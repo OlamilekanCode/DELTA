@@ -8,6 +8,7 @@ interval). Fails closed whenever the chain or token isn't configured, or no
 fresh cached balance exists — never assumes holder access.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -16,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models.auth import CachedWalletBalance
 from app.services.blockchain import JsonRpcProvider, RpcError, RpcProvider
+
+log = logging.getLogger(__name__)
 
 CACHE_TTL = timedelta(minutes=5)
 REFRESH_MIN_INTERVAL = timedelta(minutes=5)
@@ -93,8 +96,11 @@ async def refresh_wallet_balance(
         block_number = await provider.get_block_number()
     except RpcError as e:
         return BalanceRefreshResult(status="rpc_error", message=str(e))
-    except Exception as e:  # noqa: BLE001 — any unexpected RPC/transport failure fails closed, never crashes the request
-        return BalanceRefreshResult(status="rpc_error", message=f"unexpected RPC failure: {e}")
+    except Exception:  # noqa: BLE001 — any unexpected RPC/transport failure fails closed, never crashes the request
+        # Never echo the raw exception — transport errors often embed the
+        # request URL verbatim, and ROBINHOOD_RPC_URL may carry an API key.
+        log.exception("Unexpected RPC failure refreshing wallet balance")
+        return BalanceRefreshResult(status="rpc_error", message="Unexpected RPC failure")
 
     # Integer comparison only — token balances are never represented as float.
     min_balance_raw_int = int(settings.synthex_holder_min_balance_raw)

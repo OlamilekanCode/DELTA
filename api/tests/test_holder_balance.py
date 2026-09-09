@@ -97,9 +97,12 @@ async def test_refresh_rpc_error_fails_closed(db: AsyncSession, configured) -> N
 
 @pytest.mark.asyncio
 async def test_refresh_rpc_timeout_fails_closed_not_crash(db: AsyncSession, configured) -> None:
-    mock = MockRpcProvider(chain_id=CHAIN_ID, raise_on_call=TimeoutError("timed out"))
+    mock = MockRpcProvider(chain_id=CHAIN_ID, raise_on_call=TimeoutError("secret-looking-timeout-detail"))
     result = await refresh_wallet_balance(db, WALLET, rpc=mock)
     assert result.status == "rpc_error"
+    # The raw exception text must never reach the response — transport
+    # errors often embed the request URL (which may carry an API key).
+    assert "secret-looking-timeout-detail" not in (result.message or "")
 
 
 @pytest.mark.asyncio

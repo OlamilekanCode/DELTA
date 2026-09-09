@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -187,6 +187,71 @@ async def test_compute_portfolio_exposure_signed_weighted_score(db: AsyncSession
     result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
     # 0.5 * 0.8 + 0.5 * -0.4 = 0.2
     assert result["portfolio_exposure_score"] == pytest.approx(0.2, rel=1e-3)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_fresh_data_not_stale(db: AsyncSession) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["positions_stale"] is False
+    assert result["quotes_stale"] is False
+    assert result["total_usd_value"] == pytest.approx(100_000.0, rel=1e-6)
+    assert result["supported_position_count"] == 1
+    assert result["excluded_position_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_stale_positions_flagged(db: AsyncSession) -> None:
+    """A cached position snapshot old enough to be stale must be clearly
+    flagged, not silently presented as current."""
+    await _seed_quote(db, "BTC", 100_000.0)
+    btc = (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one()
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=8453, contract_address="0xbtc",
+        asset_id=btc.id, quantity_raw=str(10**18), decimals=18,
+        block_number=1, updated_at=datetime.now(UTC) - timedelta(hours=2),
+    ))
+    await db.commit()
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["positions_stale"] is True
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_stale_quotes_flagged(db: AsyncSession) -> None:
+    btc = (await db.execute(select(Asset).where(Asset.symbol == "BTC"))).scalar_one()
+    existing_quote = (await db.execute(select(AssetQuote).where(AssetQuote.asset_id == btc.id))).scalar_one_or_none()
+    if existing_quote:
+        await db.delete(existing_quote)
+        await db.commit()
+    db.add(AssetQuote(
+        asset_id=btc.id, price_usd=100_000.0, market_cap_usd=None, volume_24h_usd=None,
+        change_24h_pct=None, ts=datetime.now(UTC) - timedelta(hours=2), provider="test", is_demo=True,
+    ))
+    await db.commit()
+    await _seed_position(db, "BTC", 1.0)  # fresh position, stale quote
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["positions_stale"] is False
+    assert result["quotes_stale"] is True
+
+
+@pytest.mark.asyncio
+async def test_shape_summary_passes_through_staleness_and_coverage(db: AsyncSession) -> None:
+    exposure = {
+        "ranked": [{"stock": "NVDA", "portfolio_exposure_score": 0.5, "assets": []}],
+        "positions_stale": True,
+        "quotes_stale": False,
+        "total_usd_value": 42.0,
+        "data_ts": None,
+    }
+    shaped = shape_portfolio_response("summary", exposure)
+    assert shaped["positions_stale"] is True
+    assert shaped["quotes_stale"] is False
+    assert shaped["total_usd_value"] == 42.0
+    assert "assets" not in shaped  # still no detailed holdings at summary tier
 
 
 @pytest.mark.asyncio

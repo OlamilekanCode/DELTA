@@ -5,6 +5,7 @@ import type React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, useSignMessage } from "wagmi";
 import { useSession } from "@/hooks/useSession";
+import { getConfiguredChainId, isWalletFullyConfigured } from "@/lib/wallet-config";
 
 /**
  * The 10 required wallet states, covering disconnected/wrong-chain/unauthenticated
@@ -56,13 +57,6 @@ export function useWalletState(): WalletStateContextValue {
   return ctx;
 }
 
-function parseConfiguredChainId(): number | null {
-  const raw = process.env.NEXT_PUBLIC_SYNTHEX_CHAIN_ID;
-  if (!raw) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
 async function fetchEntitlements(): Promise<EntitlementsStatus | null> {
   const res = await fetch("/api/entitlements/status", { cache: "no-store" });
   if (!res.ok) return null;
@@ -107,8 +101,11 @@ export default function WalletStateManager({ children }: { children: React.React
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
 
-  const configuredChainId = useMemo(() => parseConfiguredChainId(), []);
-  const chainConfigured = configuredChainId !== null;
+  const configuredChainId = useMemo(() => getConfiguredChainId(), []);
+  // Requires the Reown project ID and public RPC URL too, not just the
+  // chain ID — Web3Provider only actually registers the chain (so the
+  // wallet can ever switch to it) when all three are present.
+  const chainConfigured = useMemo(() => isWalletFullyConfigured(), []);
 
   // Forces a fresh on-chain balance read (server-side rate-limited) after
   // login and every 5 minutes while authenticated and the tab is visible —
