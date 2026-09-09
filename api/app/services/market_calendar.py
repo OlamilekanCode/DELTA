@@ -81,6 +81,22 @@ def upcoming_session_dates(now: datetime | None = None, count: int = 5) -> list[
     return [s.date() for s in sessions[:count]]
 
 
+def is_trading_session(session_date: date) -> bool:
+    """Whether the given calendar date is an XNYS trading session."""
+    return bool(_calendar.is_session(pd.Timestamp(session_date)))
+
+
+def previous_trading_session(session_date: date) -> date:
+    """The most recent XNYS trading session at or before the given date.
+
+    Unlike the underlying calendar's `previous_session` (which requires its
+    input to already be a valid session and returns the one before it), this
+    accepts any calendar date — including a holiday or weekend — and rolls
+    it back to the nearest real trading session.
+    """
+    return _calendar.date_to_session(pd.Timestamp(session_date), direction="previous").date()
+
+
 def session_open_close(session_date: date) -> tuple[datetime, datetime]:
     """UTC (open, close) datetimes for a given NYSE trading session date."""
     session = pd.Timestamp(session_date)

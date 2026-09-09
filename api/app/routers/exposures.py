@@ -39,7 +39,11 @@ async def get_exposures(
     stored = stored_result.scalars().all()
 
     computed_at: datetime | None = stored[0].computed_at if stored else None
-    stale = historical_is_stale(computed_at)
+    # Freshness compares the underlying market DATA's timestamp, not the
+    # calculation's wall-clock time — recomputing against unchanged, already
+    # -stale prices must never make stale market data look fresh.
+    data_ts = max((s.data_ts for s in stored if s.data_ts is not None), default=None)
+    stale = historical_is_stale(data_ts)
 
     # is_demo is stored per-pair in stored_exposure_scores.
     # A result set is demo when any individual pair used fixture data.

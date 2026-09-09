@@ -41,7 +41,14 @@ async def _load_prices(
 
 
 async def recompute_all_scores(db: AsyncSession) -> int:
-    """Precompute Pearson Exposure Scores for every stock × crypto pair and persist them."""
+    """Precompute Pearson Exposure Scores for every stock × crypto pair.
+
+    The complete replacement set is computed in memory first (no writes);
+    only once it is ready does this upsert existing rows / insert new ones /
+    remove pairs no longer present in the fresh set. A provider or
+    calculation failure before that point leaves the previously committed
+    scores completely untouched — never a delete-then-partial-insert.
+    """
     stocks_result = await db.execute(
         select(Asset).where(Asset.asset_type == "stock").order_by(Asset.symbol)
     )
@@ -55,10 +62,6 @@ async def recompute_all_scores(db: AsyncSession) -> int:
     crypto_id_map: dict[str, int] = {a.symbol: a.id for a in crypto_assets}
     crypto_asset_map: dict[str, Asset] = {a.symbol: a for a in crypto_assets}
     now = datetime.now(UTC)
-    total = 0
-
-    # Clear all existing scores up front so re-runs are fully idempotent.
-    await db.execute(delete(StoredExposureScore))
 
     # Preload is_demo status for ALL relevant assets in one query.
     # An asset is considered demo if ANY of its stored price rows has is_demo=True.
@@ -84,6 +87,8 @@ async def recompute_all_scores(db: AsyncSession) -> int:
         if len(cp) >= 2:
             crypto_map[ca.symbol] = (ca.name, ca.category, cp)
 
+    # ── Pure computation: build the complete replacement set, no writes yet. ──
+    new_rows: list[dict] = []
     for stock in stocks:
         stock_prices, stock_adj_close_fallback = await _load_prices(
             db, stock.id, 90, prefer_adj_close=True
@@ -92,7 +97,6 @@ async def recompute_all_scores(db: AsyncSession) -> int:
             continue
 
         stock_is_demo = stock.id in demo_asset_ids
-
         scores = compute_exposure_scores(stock_prices, crypto_map)
 
         for s in scores:
@@ -103,30 +107,49 @@ async def recompute_all_scores(db: AsyncSession) -> int:
             # Pair-level is_demo: True if EITHER the stock OR the crypto has demo prices.
             # Only mark live (False) when both assets use real provider data.
             pair_is_demo = stock_is_demo or (ca.id in demo_asset_ids)
-            # Crypto prices here are daily UTC closes, not selected against the
-            # actual XNYS session close time (see docs/methodology.md) — never
-            # claim precise market-close alignment until hourly/5-min crypto
-            # observations cover the full 90-day window and session-aligned
-            # selection is wired in here.
+
+            # Flags are additive, never mutually exclusive — crypto_daily_proxy
+            # is honest and true for every score today (crypto prices are daily
+            # UTC closes, not selected against the actual XNYS session close —
+            # see docs/methodology.md) and must never be dropped just because
+            # adj_close_missing or low_observations also applies.
+            flags = ["crypto_daily_proxy"]
             if stock_adj_close_fallback:
-                data_quality = "adj_close_missing"
-            elif s.observations < MIN_OBSERVATIONS * 1.2:
-                data_quality = "low_observations"
-            else:
-                data_quality = "crypto_daily_proxy"
-            db.add(StoredExposureScore(
-                stock_id=stock.id,
-                crypto_id=crypto_id,
-                score=s.score,
-                raw_correlation=s.raw_correlation,
-                observations=s.observations,
-                computed_at=now,
-                model_version="v1",
-                is_demo=pair_is_demo,
-                data_quality=data_quality,
-                data_ts=datetime.fromisoformat(s.last_date).replace(tzinfo=UTC),
-            ))
-            total += 1
+                flags.append("adj_close_missing")
+            if s.observations < MIN_OBSERVATIONS * 1.2:
+                flags.append("low_observations")
+
+            new_rows.append({
+                "stock_id": stock.id,
+                "crypto_id": crypto_id,
+                "score": s.score,
+                "raw_correlation": s.raw_correlation,
+                "observations": s.observations,
+                "computed_at": now,
+                "model_version": "v1",
+                "is_demo": pair_is_demo,
+                "data_quality": ",".join(flags),
+                "data_ts": datetime.fromisoformat(s.last_date).replace(tzinfo=UTC),
+            })
+
+    # ── Upsert the complete set, then remove only pairs no longer present. ──
+    existing_result = await db.execute(select(StoredExposureScore))
+    existing_by_pair = {(row.stock_id, row.crypto_id): row for row in existing_result.scalars().all()}
+
+    seen_pairs: set[tuple[int, int]] = set()
+    for nr in new_rows:
+        key = (nr["stock_id"], nr["crypto_id"])
+        seen_pairs.add(key)
+        row = existing_by_pair.get(key)
+        if row is not None:
+            for field, value in nr.items():
+                setattr(row, field, value)
+        else:
+            db.add(StoredExposureScore(**nr))
+
+    obsolete_ids = [row.id for key, row in existing_by_pair.items() if key not in seen_pairs]
+    if obsolete_ids:
+        await db.execute(delete(StoredExposureScore).where(StoredExposureScore.id.in_(obsolete_ids)))
 
     await db.commit()
-    return total
+    return len(new_rows)

@@ -7,9 +7,13 @@ schedule; crypto quotes and intraday scores follow the actual market clock
 (XNYS session + 30-minute bucket), not a flat wall-clock duration.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
-from app.services.market_calendar import get_market_status
+from app.services.market_calendar import (
+    get_market_status,
+    is_trading_session,
+    previous_trading_session,
+)
 
 _RECALC_WEEKDAYS = {1, 4}  # Tuesday=1, Friday=4 (Monday=0) — matches the Cloudflare historical cron
 _RECALC_HOUR_UTC = 23  # matches "0 23 * * 2,5" — after US market close
@@ -35,13 +39,33 @@ def latest_historical_recalc_deadline(now: datetime | None = None) -> datetime:
     return candidate  # unreachable in practice — 8 days always covers a Tue or Fri
 
 
-def historical_is_stale(computed_at: datetime | None, now: datetime | None = None) -> bool:
-    """Stale if never computed, or computed before the last Tuesday/Friday
-    recalculation deadline. Weekends and holidays between recalculations
-    never make an up-to-date score look stale."""
-    if computed_at is None:
+def expected_completed_session(now: datetime | None = None) -> date:
+    """The most recent XNYS trading session date that should already be
+    reflected in stored historical data, given the last Tuesday/Friday
+    23:00 UTC recalculation deadline that has passed. Uses the actual
+    exchange calendar (not a flat weekday check) so a holiday landing on a
+    Tuesday or Friday correctly rolls back to the prior real session."""
+    deadline = latest_historical_recalc_deadline(now)
+    deadline_date = deadline.astimezone(UTC).date()
+    if is_trading_session(deadline_date):
+        return deadline_date
+    return previous_trading_session(deadline_date)
+
+
+def historical_is_stale(data_ts: datetime | date | None, now: datetime | None = None) -> bool:
+    """Stale if there is no data timestamp at all, or its trading-session
+    date is older than the most recent session the last Tuesday/Friday job
+    should already have captured — comparing the underlying market DATA's
+    timestamp, never just the calculation's wall-clock `computed_at`.
+    Recomputing against unchanged, already-stale prices must not make
+    stale market data look fresh just because the job happened to run.
+    Weekends and holidays between recalculations never make genuinely
+    up-to-date data look stale.
+    """
+    if data_ts is None:
         return True
-    return _aware(computed_at) < latest_historical_recalc_deadline(now)
+    data_date = data_ts.date() if isinstance(data_ts, datetime) else data_ts
+    return data_date < expected_completed_session(now)
 
 
 def quote_is_stale(quote_ts: datetime | None, now: datetime | None = None) -> bool:

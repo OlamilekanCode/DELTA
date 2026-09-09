@@ -1,7 +1,13 @@
 """Tests for /exposures, /graphs, and expanded /assets endpoints."""
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.exposure_score import StoredExposureScore
 
 
 @pytest.mark.asyncio
@@ -38,6 +44,20 @@ async def test_exposures_unknown_stock_404(client: AsyncClient) -> None:
 async def test_exposures_demo_flag_true_for_fixture_data(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/exposures/NVDA")
     assert resp.json()["demo"] is True
+
+
+@pytest.mark.asyncio
+async def test_exposures_stale_reflects_data_ts_not_computed_at(client: AsyncClient, db: AsyncSession) -> None:
+    """A score recomputed "now" (computed_at fresh) but built from old
+    market data (data_ts stale) must report stale=True — recomputing
+    against unchanged old prices must never look fresh just because the
+    job happened to run."""
+    old_ts = datetime.now(UTC) - timedelta(days=60)
+    await db.execute(update(StoredExposureScore).values(computed_at=datetime.now(UTC), data_ts=old_ts))
+    await db.commit()
+
+    resp = await client.get("/api/v1/exposures/NVDA")
+    assert resp.json()["stale"] is True
 
 
 @pytest.mark.asyncio
