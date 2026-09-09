@@ -185,7 +185,7 @@ class MarketstackProvider:
         """Fetch the latest 30-min bar(s) for every stock symbol in ONE Marketstack
         call, using the same comma-separated `symbols` batching as fetch_eod_batch —
         never call /intraday once per symbol when this is available on the plan."""
-        from app.services.intraday import IntradayCandle
+        from app.services.intraday import IntradayCandle, floor_to_bucket
 
         log_provider_call("marketstack", "intraday_batch", symbols=len(symbols))
         symbols_str = ",".join(s.upper() for s in symbols)
@@ -219,7 +219,15 @@ class MarketstackProvider:
                 continue
             if any(float(v) <= 0 for v in (o, h, low, c)):
                 continue
-            bucket_ts = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+            # Marketstack's "date" is documented as the bar-start timestamp
+            # (same convention as CoinGecko-derived buckets, which floor
+            # sample timestamps to bucket start) — this must be reconfirmed
+            # against a live Marketstack response before launch. Regardless
+            # of that, always floor defensively to the UTC 30-minute
+            # boundary so a provider timestamp with stray seconds or a
+            # different timezone offset still lands on the exact bucket
+            # CoinGecko-derived crypto candles use.
+            bucket_ts = floor_to_bucket(datetime.fromisoformat(raw_date.replace("Z", "+00:00")))
             by_symbol[sym].append(IntradayCandle(
                 bucket_ts=bucket_ts,
                 open=float(o), high=float(h), low=float(low), close=float(c),

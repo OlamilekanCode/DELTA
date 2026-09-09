@@ -143,4 +143,18 @@ async def trigger_refresh_intraday(
 
     if _job_failed(counts):
         raise HTTPException(status_code=502, detail={"command": "refresh-intraday", "counts": counts})
+
+    # Candle ingestion can look "successful" (crypto candles built fine from
+    # already-stored observations) while the stock side is completely dead —
+    # that must never be reported as success just because some candles
+    # existed. Only checked when the job actually attempted real work
+    # (skipped via demo-mode/market-closed never reaches this with
+    # requested > 0).
+    if counts.get("requested", 0) > 0 and (
+        counts.get("marketstack_failed") or counts.get("score_stocks_recomputed", 0) == 0
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail={"command": "refresh-intraday", "counts": counts, "reason": "no_intraday_scores_recomputed"},
+        )
     return {"ok": True, "command": "refresh-intraday", "counts": counts}

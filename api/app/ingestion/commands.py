@@ -278,12 +278,14 @@ async def cmd_refresh_intraday() -> dict:
     counts["requested"] = len(stocks) + len(crypto_assets)
 
     # Stocks: one batched Marketstack call for every symbol.
+    counts["marketstack_failed"] = False
     try:
         candles_by_symbol = await ms.fetch_intraday_candles_batch([s.symbol for s in stocks])
     except Exception:
         log.exception("Marketstack batch intraday call failed — existing data preserved")
         candles_by_symbol = {}
         counts["failed"] += len(stocks)
+        counts["marketstack_failed"] = True
 
     if candles_by_symbol:
         async with get_factory()() as db:
@@ -334,6 +336,9 @@ async def cmd_refresh_intraday() -> dict:
                 counts["failed"] += 1
         await db.commit()
 
+    counts["score_pairs_recomputed"] = 0
+    counts["score_stocks_recomputed"] = 0
+    counts["score_stocks_failed"] = 0
     async with get_factory()() as db:
         stocks_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
         stocks = stocks_result.scalars().all()
@@ -341,9 +346,19 @@ async def cmd_refresh_intraday() -> dict:
         crypto_assets = crypto_result.scalars().all()
         for stock in stocks:
             try:
-                await recompute_intraday_scores_for_stock(db, stock, crypto_assets)
+                results, _ = await recompute_intraday_scores_for_stock(db, stock, crypto_assets)
+                # Only count a stock as "recomputed" when it actually had
+                # candle data to score against — a stock with zero candles
+                # (e.g. Marketstack failed completely) trivially returns
+                # `[]` without raising, and that must not be mistaken for a
+                # real recomputation when checking whether the job as a
+                # whole produced anything.
+                if results:
+                    counts["score_stocks_recomputed"] += 1
+                    counts["score_pairs_recomputed"] += sum(1 for r in results if not r.collecting_data)
             except Exception:
                 log.exception("Failed to recompute intraday scores for %s", stock.symbol)
+                counts["score_stocks_failed"] += 1
 
     return counts
 

@@ -162,6 +162,39 @@ async def test_cmd_refresh_intraday_excludes_in_progress_bucket(db: AsyncSession
 
 
 @pytest.mark.asyncio
+async def test_cmd_refresh_intraday_marks_marketstack_failed_on_error(db: AsyncSession, monkeypatch, httpx_mock) -> None:
+    """A completely failed Marketstack batch call must be visible in the
+    returned counts, not hidden behind whatever crypto candles happened to
+    build successfully from stored observations."""
+    settings = _live_settings()
+    monkeypatch.setattr(commands_module, "get_settings", lambda: settings)
+
+    import app.services.market_calendar as mc
+
+    def fake_status(now=None):
+        ts = now or datetime.now(UTC)
+        bucket = ts.replace(minute=(ts.minute // 30) * 30, second=0, microsecond=0)
+        return mc.MarketStatus(
+            is_open=True, timezone=mc.MARKET_TIMEZONE, last_close=ts - timedelta(hours=6),
+            next_open=ts + timedelta(hours=18), current_bucket=bucket, status_reason="test",
+        )
+
+    monkeypatch.setattr(mc, "get_market_status", fake_status)
+
+    # fetch_intraday_candles_batch retries on failure (stop_after_attempt(3))
+    # before finally re-raising — register a failing response for each attempt.
+    for _ in range(3):
+        httpx_mock.add_response(
+            url=re.compile(r"https://api\.marketstack\.com/v1/intraday.*"),
+            status_code=500,
+        )
+
+    counts = await cmd_refresh_intraday()
+    assert counts["marketstack_failed"] is True
+    assert counts["score_stocks_recomputed"] == 0  # no stock candle data exists to score at all
+
+
+@pytest.mark.asyncio
 async def test_cmd_refresh_crypto_quotes_persists_observations(db: AsyncSession, monkeypatch, httpx_mock) -> None:
     settings = _live_settings()
     monkeypatch.setattr(commands_module, "get_settings", lambda: settings)

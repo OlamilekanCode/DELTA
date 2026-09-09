@@ -41,7 +41,17 @@ class IntradayCandle:
     data_quality: str  # "ok" | "reduced"
 
 
-def _floor_bucket(ts: datetime) -> datetime:
+def floor_to_bucket(ts: datetime) -> datetime:
+    """Normalise to UTC, then floor to the start of its 30-minute bucket.
+
+    This is the single canonical alignment used for every provider's
+    candles — CoinGecko-derived crypto candles (via `build_30min_candles`)
+    and Marketstack-derived stock candles alike (see
+    `providers/marketstack.py`) — so the two are guaranteed to land on
+    identical bucket boundaries regardless of each provider's own timezone
+    or sub-minute timestamp jitter.
+    """
+    ts = ts.astimezone(UTC) if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
     floored_minute = (ts.minute // BUCKET_MINUTES) * BUCKET_MINUTES
     return ts.replace(minute=floored_minute, second=0, microsecond=0)
 
@@ -59,7 +69,7 @@ def build_30min_candles(
     for obs in observations:
         if obs.price <= 0:
             continue
-        buckets.setdefault(_floor_bucket(obs.ts), []).append(obs)
+        buckets.setdefault(floor_to_bucket(obs.ts), []).append(obs)
 
     candles: list[IntradayCandle] = []
     for bucket_ts, samples in sorted(buckets.items()):
@@ -132,10 +142,30 @@ async def ingest_intraday_candles(
 
 async def stock_candle_count(db: AsyncSession, stock_id: int) -> int:
     """Number of "ok"-quality completed candles available for a stock within
-    the scoring window — used by GET /intraday to report collection progress
-    without recomputing any score."""
+    the scoring window. Used only as a rough collection-progress signal for a
+    stock that has never been scored at all yet — once at least one pair has
+    been scored, GET /intraday reads pair-level progress from the stored
+    IntradayExposureScore rows instead (see routers/intraday.py)."""
     data = await _load_intraday_open_close(db, stock_id)
     return len(data)
+
+
+async def _demo_flags(db: AsyncSession, asset_ids: list[int]) -> dict[int, bool]:
+    """Best-effort is_demo lookup for a batch of assets, from each asset's
+    most recently stored candle (one query for the whole batch, not one per
+    asset). An asset with no candle at all defaults to True — fail toward
+    "demo" rather than silently implying real data."""
+    if not asset_ids:
+        return {}
+    result = await db.execute(
+        select(IntradayPrice.asset_id, IntradayPrice.is_demo)
+        .where(IntradayPrice.asset_id.in_(asset_ids), IntradayPrice.interval == INTERVAL)
+        .order_by(IntradayPrice.asset_id, IntradayPrice.bucket_ts.desc())
+    )
+    flags: dict[int, bool] = {}
+    for asset_id, is_demo in result.all():
+        flags.setdefault(asset_id, is_demo)  # first row per asset_id is the latest (ORDER BY ... DESC)
+    return flags
 
 
 @dataclass
@@ -146,6 +176,7 @@ class IntradayScoreResult:
     score: float
     observations: int
     collecting_data: bool
+    data_ts: datetime | None = None  # latest common (aligned) stock/crypto candle timestamp for this pair
 
 
 async def _load_intraday_open_close(
@@ -178,6 +209,11 @@ async def compute_intraday_scores(
 ) -> tuple[list[IntradayScoreResult], int]:
     """Pure computation (no writes). Returns (results, stock_candle_count).
 
+    Every crypto asset gets a result — either a real score or a
+    `collecting_data` placeholder — never silently omitted, so a caller can
+    persist full collection-progress information without recomputing
+    anything later (see recompute_intraday_scores_for_stock).
+
     `crypto_data_cache` (asset_id -> {bucket_ts: (open, close)}, unfiltered by date)
     lets a caller iterating many stocks preload every crypto's data once instead
     of re-querying it per stock — see seed_fixture_intraday_data.
@@ -200,22 +236,23 @@ async def compute_intraday_scores(
         else:
             crypto_data = await _load_intraday_open_close(db, ca.id, allowed_dates=allowed_dates)
         common = sorted(set(stock_data) & set(crypto_data))
+        last_common_ts = common[-1] if common else None
         s_rets = [math.log(stock_data[t][1] / stock_data[t][0]) for t in common]
         c_rets = [math.log(crypto_data[t][1] / crypto_data[t][0]) for t in common]
         n = len(common)
         if n < MIN_INTRADAY_OBS:
             results.append(IntradayScoreResult(
                 symbol=ca.symbol, name=ca.name, category=ca.category,
-                score=0.0, observations=n, collecting_data=True,
+                score=0.0, observations=n, collecting_data=True, data_ts=last_common_ts,
             ))
             continue
         r, n2 = pearson_r(s_rets, c_rets, min_observations=MIN_INTRADAY_OBS)
         results.append(IntradayScoreResult(
             symbol=ca.symbol, name=ca.name, category=ca.category,
-            score=round(r, 4), observations=n2, collecting_data=False,
+            score=round(r, 4), observations=n2, collecting_data=False, data_ts=last_common_ts,
         ))
 
-    results.sort(key=lambda x: abs(x.score), reverse=True)
+    results.sort(key=lambda x: (-abs(x.score), x.symbol))
     return results, stock_candle_count
 
 
@@ -225,28 +262,48 @@ async def recompute_intraday_scores_for_stock(
     crypto_assets: list[Asset],
     crypto_data_cache: dict[int, dict] | None = None,
 ) -> tuple[list[IntradayScoreResult], int]:
-    """Compute the full result set first, then bulk-upsert atomically.
-
-    Partial failure (an exception before commit) leaves the last stored scores
-    untouched, since nothing is deleted until the full set is ready in memory.
+    """Compute the full result set first (both ready and still-collecting
+    pairs), then upsert every pair in one transaction and remove only pairs
+    no longer present in the fresh result set (e.g. a delisted asset) —
+    never deleting anything until the new complete set is written, so a
+    failure partway through this function leaves the last valid stored
+    scores untouched.
     """
     results, stock_candle_count = await compute_intraday_scores(
         db, stock, crypto_assets, crypto_data_cache=crypto_data_cache
     )
-    ready = [r for r in results if not r.collecting_data]
+    if not results:
+        return results, stock_candle_count
 
-    if ready:
-        now = datetime.now(UTC)
-        demo_result = await db.execute(
-            select(IntradayPrice.is_demo).where(IntradayPrice.asset_id == stock.id).limit(1)
-        )
-        stock_is_demo = demo_result.scalar_one_or_none()
-        stock_is_demo = True if stock_is_demo is None else stock_is_demo
+    now = datetime.now(UTC)
+    demo_flags = await _demo_flags(db, [stock.id, *(ca.id for ca in crypto_assets)])
+    stock_is_demo = demo_flags.get(stock.id, True)
+    crypto_by_symbol = {c.symbol: c for c in crypto_assets}
 
-        crypto_by_symbol = {c.symbol: c for c in crypto_assets}
-        await db.execute(delete(IntradayExposureScore).where(IntradayExposureScore.stock_id == stock.id))
-        for r in ready:
-            ca = crypto_by_symbol[r.symbol]
+    existing_result = await db.execute(
+        select(IntradayExposureScore).where(IntradayExposureScore.stock_id == stock.id)
+    )
+    existing_by_crypto = {row.crypto_id: row for row in existing_result.scalars().all()}
+
+    seen_crypto_ids: set[int] = set()
+    for r in results:
+        ca = crypto_by_symbol[r.symbol]
+        seen_crypto_ids.add(ca.id)
+        pair_is_demo = stock_is_demo or demo_flags.get(ca.id, True)
+        data_ts = r.data_ts or now
+        data_quality = "collecting_data" if r.collecting_data else "ok"
+
+        row = existing_by_crypto.get(ca.id)
+        if row is not None:
+            row.score = r.score
+            row.observations = r.observations
+            row.window_sessions = MAX_SESSIONS
+            row.data_ts = data_ts
+            row.computed_at = now
+            row.model_version = MODEL_VERSION
+            row.is_demo = pair_is_demo
+            row.data_quality = data_quality
+        else:
             db.add(IntradayExposureScore(
                 stock_id=stock.id,
                 crypto_id=ca.id,
@@ -254,12 +311,24 @@ async def recompute_intraday_scores_for_stock(
                 observations=r.observations,
                 interval=INTERVAL,
                 window_sessions=MAX_SESSIONS,
-                data_ts=now,
+                data_ts=data_ts,
                 computed_at=now,
                 model_version=MODEL_VERSION,
-                is_demo=stock_is_demo,
-                data_quality="ok",
+                is_demo=pair_is_demo,
+                data_quality=data_quality,
             ))
-        await db.commit()
 
+    # Remove only pairs that no longer appear at all in the fresh result set
+    # (e.g. a crypto asset removed from the catalogue) — done last, after the
+    # complete replacement set above is already staged in this transaction.
+    obsolete_ids = set(existing_by_crypto) - seen_crypto_ids
+    if obsolete_ids:
+        await db.execute(
+            delete(IntradayExposureScore).where(
+                IntradayExposureScore.stock_id == stock.id,
+                IntradayExposureScore.crypto_id.in_(obsolete_ids),
+            )
+        )
+
+    await db.commit()
     return results, stock_candle_count
