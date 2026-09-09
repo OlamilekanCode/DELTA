@@ -28,3 +28,10 @@ class GraphResult(BaseModel):
     edges: list[GraphEdge]
     demo: bool
     computed_at: datetime | None
+    interval: str = "historical"  # "historical" | "live"
+    status: str = "ready"  # "ready" | "collecting_data" — "live" interval only
+    current_count: int | None = None
+    required_count: int | None = None
+    estimated_ready: str | None = None
+    freshness: str | None = None  # "fresh" | "stale" | "collecting_data" | "market_closed"
+    market_is_open: bool | None = None

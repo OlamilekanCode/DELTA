@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
+from app.models.intraday_exposure_score import IntradayExposureScore
 from app.models.portfolio import WalletEntitlement
 from app.models.portfolio_contract import PortfolioContract
 from app.models.price import DailyPrice
@@ -283,8 +284,29 @@ async def refresh_wallet_positions(
     return result
 
 
-async def _stock_exposure_for_weights(
-    db: AsyncSession, stock: Asset, weights: list[tuple[Asset, Decimal]], excluded: list[dict]
+async def _historical_score_by_crypto(db: AsyncSession, stock: Asset) -> dict[int, float]:
+    scores_result = await db.execute(
+        select(StoredExposureScore).where(StoredExposureScore.stock_id == stock.id)
+    )
+    return {s.crypto_id: s.score for s in scores_result.scalars().all()}
+
+
+async def _live_score_by_crypto(db: AsyncSession, stock: Asset) -> tuple[dict[int, float], bool]:
+    """Only `data_quality == "ok"` (ready) pairs — a pair still collecting
+    intraday observations must never be silently averaged in as if it were
+    a confirmed live correlation. Second return value: whether ANY intraday
+    row exists at all for this stock (ready or not), so the caller can tell
+    "genuinely collecting data" apart from "no intraday data configured"."""
+    scores_result = await db.execute(
+        select(IntradayExposureScore).where(IntradayExposureScore.stock_id == stock.id)
+    )
+    rows = scores_result.scalars().all()
+    ready = {s.crypto_id: s.score for s in rows if s.data_quality == "ok"}
+    return ready, bool(rows)
+
+
+def _weighted_stock_exposure(
+    weights: list[tuple[Asset, Decimal]], score_by_crypto: dict[int, float], excluded: list[dict]
 ) -> tuple[float | None, list[dict], list[dict]]:
     """Weighted-average signed correlation across the wallet's SYNTHETIC
     (crypto, non-stablecoin) holdings only. `weights` are each asset's share
@@ -296,11 +318,6 @@ async def _stock_exposure_for_weights(
     correlation and "no crypto held" must never look the same."""
     if not weights:
         return None, [], list(excluded)
-
-    scores_result = await db.execute(
-        select(StoredExposureScore).where(StoredExposureScore.stock_id == stock.id)
-    )
-    score_by_crypto = {s.crypto_id: s.score for s in scores_result.scalars().all()}
 
     total = Decimal(0)
     contributing: list[dict] = []
@@ -315,6 +332,28 @@ async def _stock_exposure_for_weights(
     if not contributing:
         return None, [], stock_excluded
     return float(total), contributing, stock_excluded
+
+
+async def _stock_exposure_for_weights(
+    db: AsyncSession, stock: Asset, weights: list[tuple[Asset, Decimal]], excluded: list[dict]
+) -> tuple[float | None, list[dict], list[dict]]:
+    score_by_crypto = await _historical_score_by_crypto(db, stock)
+    return _weighted_stock_exposure(weights, score_by_crypto, excluded)
+
+
+async def _live_stock_exposure_for_weights(
+    db: AsyncSession, stock: Asset, weights: list[tuple[Asset, Decimal]]
+) -> tuple[float | None, list[dict], str]:
+    """Live/intraday counterpart of `_stock_exposure_for_weights`. Returns
+    (score, contributing_assets, live_status) where live_status is
+    "ready" | "collecting_data" | "no_data" — "collecting_data" means at
+    least one relevant pair has intraday rows that just aren't ready yet,
+    "no_data" means intraday scoring hasn't run for this stock at all."""
+    score_by_crypto, has_any_rows = await _live_score_by_crypto(db, stock)
+    score, contributing, _ = _weighted_stock_exposure(weights, score_by_crypto, [])
+    if score is not None:
+        return score, contributing, "ready"
+    return None, [], "collecting_data" if has_any_rows else "no_data"
 
 
 async def _classify_positions(
@@ -532,6 +571,7 @@ async def compute_portfolio_exposure(
         if stock is None:
             return {"error": "unknown_stock", "portfolio_exposure_score": None, "assets": []}
         score, contributing, stock_excluded = await _stock_exposure_for_weights(db, stock, weights, excluded)
+        live_score, live_contributing, live_status = await _live_stock_exposure_for_weights(db, stock, weights)
         direct_for_stock = next((h for h in direct_holdings if h["symbol"] == stock.symbol), None)
         return {
             "stock": stock.symbol,
@@ -539,6 +579,14 @@ async def compute_portfolio_exposure(
             "assets": contributing,
             "excluded": stock_excluded,
             "data_ts": data_ts.isoformat() if data_ts else None,
+            # Intraday counterpart — calculated separately from the
+            # historical figure above, never blended into it. "no_data"
+            # means intraday scoring hasn't produced any rows for this
+            # stock yet; "collecting_data" means it has, but not enough
+            # aligned observations for any currently-held crypto pair.
+            "live_portfolio_exposure_score": round(live_score, 4) if live_score is not None else None,
+            "live_assets": live_contributing,
+            "live_status": live_status,
             "direct_holding_for_stock": direct_for_stock,
             **direct_summary,
             **coverage,
@@ -546,11 +594,20 @@ async def compute_portfolio_exposure(
 
     stocks_result = await db.execute(select(Asset).where(Asset.asset_type == "stock").order_by(Asset.symbol))
     ranked: list[dict] = []
+    live_ranked: list[dict] = []
     for stock in stocks_result.scalars().all():
         score, contributing, _ = await _stock_exposure_for_weights(db, stock, weights, excluded)
         if contributing:
             ranked.append({"stock": stock.symbol, "portfolio_exposure_score": round(score, 4), "assets": contributing})
+        live_score, live_contributing, live_status = await _live_stock_exposure_for_weights(db, stock, weights)
+        if live_status == "ready":
+            live_ranked.append({
+                "stock": stock.symbol,
+                "portfolio_exposure_score": round(live_score, 4),
+                "assets": live_contributing,
+            })
     ranked.sort(key=lambda r: abs(r["portfolio_exposure_score"]), reverse=True)
+    live_ranked.sort(key=lambda r: abs(r["portfolio_exposure_score"]), reverse=True)
 
     category_totals: dict[str, Decimal] = {}
     for asset, weight in weights:
@@ -563,6 +620,7 @@ async def compute_portfolio_exposure(
 
     return {
         "ranked": ranked,
+        "live_ranked": live_ranked,
         "assets": [{"symbol": asset.symbol, "weight": float(weight)} for asset, weight in weights],
         "category_exposure": category_exposure,
         "excluded": excluded,
@@ -600,16 +658,23 @@ def _summary_shape(exposure: dict) -> dict:
     ranked = exposure.get("ranked")
     if ranked is not None:
         scores = [r["portfolio_exposure_score"] for r in ranked]
+        live_ranked = exposure.get("live_ranked") or []
+        live_scores = [r["portfolio_exposure_score"] for r in live_ranked]
         shaped = {
             "portfolio_exposure_score": round(sum(scores) / len(scores), 4) if scores else None,
             "stocks_covered": len(ranked),
+            "live_portfolio_exposure_score": round(sum(live_scores) / len(live_scores), 4) if live_scores else None,
+            "live_stocks_covered": len(live_ranked),
             "data_ts": exposure.get("data_ts"),
         }
     else:
         score = exposure.get("portfolio_exposure_score")
+        live_score = exposure.get("live_portfolio_exposure_score")
         shaped = {
             "portfolio_exposure_score": score,
             "stocks_covered": 1 if score is not None else 0,
+            "live_portfolio_exposure_score": live_score,
+            "live_status": exposure.get("live_status"),
             "data_ts": exposure.get("data_ts"),
         }
     if exposure.get("note"):

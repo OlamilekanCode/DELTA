@@ -163,6 +163,14 @@ export default function PortfolioExposure({ stocks }: { stocks: ApiAsset[] }) {
             suspended. Restoring your balance restores access — no new purchase is required unless you want
             to upgrade tier.
           </p>
+          {(entitlements?.synthex_balance != null || entitlements?.synthex_required_balance != null) && (
+            <p className="font-mono text-xs text-text">
+              Current: <span className="font-bold">{entitlements?.synthex_balance ?? "—"}</span> SynthEx
+              {entitlements?.synthex_required_balance != null && (
+                <> · Required: <span className="font-bold">{entitlements.synthex_required_balance}</span> SynthEx</>
+              )}
+            </p>
+          )}
           {DEX_URL && (
             <a
               href={DEX_URL}
@@ -222,6 +230,12 @@ interface PortfolioExposureResponse {
   assets?: { symbol: string; weight: number; score?: number }[];
   excluded?: { symbol?: string; contract_address?: string; reason: string }[];
   ranked?: { stock: string; portfolio_exposure_score: number; assets: { symbol: string; weight: number; score: number }[] }[];
+  // Intraday counterpart of the figures above — calculated separately from
+  // the historical (90-day) figures, never blended into them.
+  live_portfolio_exposure_score?: number | null;
+  live_status?: "ready" | "collecting_data" | "no_data";
+  live_stocks_covered?: number;
+  live_ranked?: { stock: string; portfolio_exposure_score: number; assets: { symbol: string; weight: number; score: number }[] }[];
   category_exposure?: { category: string; weight: number }[];
   coming_soon?: string[];
   data_ts?: string | null;
@@ -452,6 +466,13 @@ function PortfolioDetail({
   const headlineStock = exposure?.stock ?? topRanked?.stock ?? null;
   const hasPositions = Boolean(exposure?.assets?.length || exposure?.ranked?.length || exposure?.stocks_covered);
 
+  const liveScore = exposure?.live_portfolio_exposure_score ?? null;
+  const liveStatus = exposure?.stock
+    ? exposure?.live_status
+    : (exposure?.live_stocks_covered ?? 0) > 0
+      ? "ready"
+      : "collecting_data";
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
       <div className="mb-6 flex items-center justify-between">
@@ -515,6 +536,20 @@ function PortfolioDetail({
               <p className="mt-2 font-mono text-[11px] text-muted/70">
                 Averaged across {exposure.stocks_covered} stock{exposure.stocks_covered === 1 ? "" : "s"} with exposure data.
               </p>
+            )}
+            {!exposureError && (
+              <div className="mt-3 flex items-center gap-2 border-t border-white/[0.06] pt-3">
+                <span className="font-mono text-[10px] uppercase tracking-widest text-muted/60">Live (30-min)</span>
+                {liveStatus === "ready" && liveScore != null ? (
+                  <span className={`font-mono text-sm font-bold ${liveScore >= 0 ? "text-green" : "text-red-400"}`}>
+                    {formatScore(liveScore)}
+                  </span>
+                ) : liveStatus === "collecting_data" ? (
+                  <span className="font-mono text-xs text-muted">Collecting data</span>
+                ) : (
+                  <span className="font-mono text-xs text-muted">Not available yet</span>
+                )}
+              </div>
             )}
             {(exposure?.positions_stale || exposure?.quotes_stale) && (
               <p className="mt-2 font-mono text-[11px] text-amber">

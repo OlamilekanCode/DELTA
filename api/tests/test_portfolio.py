@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
+from app.models.intraday_exposure_score import IntradayExposureScore
 from app.models.portfolio_contract import PortfolioContract
 from app.models.price import DailyPrice
 from app.models.quote import AssetQuote
@@ -106,7 +107,13 @@ def test_shape_summary_single_stock_query_hides_contributions() -> None:
         "data_ts": None,
     }
     shaped = shape_portfolio_response("summary", exposure)
-    assert shaped == {"portfolio_exposure_score": 0.42, "stocks_covered": 1, "data_ts": None}
+    assert shaped == {
+        "portfolio_exposure_score": 0.42,
+        "stocks_covered": 1,
+        "live_portfolio_exposure_score": None,
+        "live_status": None,
+        "data_ts": None,
+    }
 
 
 def test_shape_detailed_passes_through_unchanged() -> None:
@@ -175,6 +182,20 @@ async def _seed_score(db: AsyncSession, stock_symbol: str, crypto_symbol: str, s
     await db.commit()
 
 
+async def _seed_intraday_score(
+    db: AsyncSession, stock_symbol: str, crypto_symbol: str, score: float, data_quality: str = "ok"
+) -> None:
+    stock = (await db.execute(select(Asset).where(Asset.symbol == stock_symbol, Asset.asset_type == "stock"))).scalar_one()
+    crypto = (await db.execute(select(Asset).where(Asset.symbol == crypto_symbol))).scalar_one()
+    now = datetime.now(UTC)
+    db.add(IntradayExposureScore(
+        stock_id=stock.id, crypto_id=crypto.id, score=score, observations=90,
+        interval="30m", window_sessions=20, data_ts=now, computed_at=now,
+        model_version="pearson_intraday_v1", is_demo=True, data_quality=data_quality,
+    ))
+    await db.commit()
+
+
 @pytest.mark.asyncio
 async def test_compute_portfolio_exposure_no_positions_returns_honest_empty(db: AsyncSession) -> None:
     result = await compute_portfolio_exposure(db, WALLET)
@@ -207,6 +228,66 @@ async def test_compute_portfolio_exposure_signed_weighted_score(db: AsyncSession
     result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
     # 0.5 * 0.8 + 0.5 * -0.4 = 0.2
     assert result["portfolio_exposure_score"] == pytest.approx(0.2, rel=1e-3)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_live_score_calculated_separately(db: AsyncSession) -> None:
+    """Historical and intraday portfolio exposure must be calculated
+    independently — a different live score must never leak into or
+    overwrite the historical figure, and vice versa."""
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_quote(db, "ETH", 4_000.0)
+    await _seed_position(db, "BTC", 1.0)  # $100,000
+    await _seed_position(db, "ETH", 25.0)  # $100,000
+    await _seed_score(db, "NVDA", "BTC", 0.8)
+    await _seed_score(db, "NVDA", "ETH", -0.4)
+    await _seed_intraday_score(db, "NVDA", "BTC", 0.1)
+    await _seed_intraday_score(db, "NVDA", "ETH", 0.3)
+
+    result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
+    assert result["portfolio_exposure_score"] == pytest.approx(0.2, rel=1e-3)
+    # 0.5 * 0.1 + 0.5 * 0.3 = 0.2 (coincidentally equal — asserted via the
+    # distinct 0.1/0.3 intraday inputs, not by comparing to the historical field)
+    assert result["live_portfolio_exposure_score"] == pytest.approx(0.2, rel=1e-3)
+    assert result["live_status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_live_collecting_data_when_pair_not_ready(db: AsyncSession) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+    await _seed_score(db, "NVDA", "BTC", 0.8)
+    await _seed_intraday_score(db, "NVDA", "BTC", 0.5, data_quality="collecting_data")
+
+    result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
+    assert result["portfolio_exposure_score"] == pytest.approx(0.8, rel=1e-3)
+    assert result["live_portfolio_exposure_score"] is None
+    assert result["live_status"] == "collecting_data"
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_live_no_data_when_never_scored(db: AsyncSession) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+    await _seed_score(db, "NVDA", "BTC", 0.8)
+
+    result = await compute_portfolio_exposure(db, WALLET, stock_symbol="NVDA")
+    assert result["live_portfolio_exposure_score"] is None
+    assert result["live_status"] == "no_data"
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_live_ranked_only_includes_ready_stocks(db: AsyncSession) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    await _seed_position(db, "BTC", 1.0)
+    await _seed_score(db, "NVDA", "BTC", 0.8)
+    await _seed_score(db, "TSLA", "BTC", -0.5)
+    await _seed_intraday_score(db, "NVDA", "BTC", 0.6)
+    # TSLA has no intraday row at all — must be excluded from live_ranked.
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    live_stocks = {r["stock"] for r in result["live_ranked"]}
+    assert live_stocks == {"NVDA"}
 
 
 @pytest.mark.asyncio
