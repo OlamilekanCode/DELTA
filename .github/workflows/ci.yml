@@ -101,7 +101,7 @@ jobs:
           DATABASE_URL: 'postgresql+asyncpg://postgres:postgres@localhost:5432/synthex_ci'
 
       - name: Run tests
-        run: pytest tests/ -v
+        run: pytest tests/ -v -n auto
         env:
           DATABASE_URL: 'sqlite+aiosqlite:///./test.db'
           USE_DEMO_DATA: 'true'

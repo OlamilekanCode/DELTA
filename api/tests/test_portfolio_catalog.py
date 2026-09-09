@@ -310,7 +310,10 @@ async def test_sync_never_reassigns_a_verified_contract_to_a_different_asset(db:
 async def test_sync_deactivates_rows_no_longer_present_upstream(db: AsyncSession) -> None:
     """A contract removed from the upstream source between sync runs must
     be deactivated, not left active indefinitely (upsert-only sync never
-    revisits it otherwise)."""
+    revisits it otherwise) — as long as the run overall still touched some
+    real data (see test_sync_skips_reconciliation_on_wholly_empty_response
+    for the "response was suspiciously empty" case, which must NOT
+    deactivate anything)."""
     cg = _FakeCoinGecko(coins=[
         {"id": "bitcoin", "symbol": "btc", "platforms": {"ethereum": "0xWillDisappear"}},
     ])
@@ -320,8 +323,11 @@ async def test_sync_deactivates_rows_no_longer_present_upstream(db: AsyncSession
     )).scalar_one()
     assert row.active is True
 
-    # Next sync no longer includes this coin at all.
-    cg2 = _FakeCoinGecko(coins=[])
+    # Next sync still returns real data (ETH matched) but no longer
+    # includes BTC at all — a genuine, partial upstream change.
+    cg2 = _FakeCoinGecko(coins=[
+        {"id": "ethereum", "symbol": "eth", "platforms": {"ethereum": "0xEthAddr"}},
+    ])
     counts = await sync_crypto_contracts_from_coingecko(db, cg2)
     assert counts["deactivated"] == 1
 
@@ -331,6 +337,29 @@ async def test_sync_deactivates_rows_no_longer_present_upstream(db: AsyncSession
     assert refreshed.active is False
     # Never deleted — cached wallet positions keep their asset mapping.
     assert refreshed.asset_id is not None
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_reconciliation_on_wholly_empty_response(db: AsyncSession) -> None:
+    """A technically-valid but wholly empty (or all-filtered-out) provider
+    response must NEVER be trusted as "confirmed: everything from this
+    source is gone now" — that would wipe out an entire source's catalogue
+    on a transient hiccup. Only reconciles when there's at least one
+    touched address as positive evidence this run saw real data."""
+    cg = _FakeCoinGecko(coins=[
+        {"id": "bitcoin", "symbol": "btc", "platforms": {"ethereum": "0xWillStay"}},
+    ])
+    await sync_crypto_contracts_from_coingecko(db, cg)
+
+    # A wholly empty (but still validly-shaped) response next run.
+    cg_empty = _FakeCoinGecko(coins=[])
+    counts = await sync_crypto_contracts_from_coingecko(db, cg_empty)
+    assert counts["deactivated"] == 0
+
+    refreshed = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == "0xwillstay")
+    )).scalar_one()
+    assert refreshed.active is True
 
 
 @pytest.mark.asyncio

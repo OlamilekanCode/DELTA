@@ -37,6 +37,13 @@ async def test_graph_live_ready_with_threshold_above_every_score_is_not_collecti
     body = r.json()
     assert body["status"] == "ready"
     assert body["edges"] == []
+    # Metadata must reflect the real (unfiltered) ready data, not the
+    # empty filtered edge list — a min_score that filters out every edge
+    # must never make genuinely fresh, computed live data look like it
+    # doesn't exist yet.
+    assert body["computed_at"] is not None
+    assert body["freshness"] != "collecting_data"
+    assert body["demo"] is True
 
 
 @pytest.mark.asyncio

@@ -150,9 +150,15 @@ async def _seed_quote(db: AsyncSession, symbol: str, price_usd: float) -> Asset:
 
 
 async def _seed_position(db: AsyncSession, symbol: str, quantity: float, decimals: int = 18) -> None:
+    """A position must always have a matching verified+active
+    PortfolioContract, exactly as refresh_wallet_positions would produce
+    in production (see get_verified_contracts_for_chain) — _classify_positions
+    excludes any position whose contract is missing, inactive or unverified."""
+    address = f"0x{symbol.lower():0<40}"
+    await _seed_portfolio_contract(db, 8453, address, decimals, symbol)
     asset = (await db.execute(select(Asset).where(Asset.symbol == symbol))).scalar_one()
     db.add(CachedWalletPosition(
-        wallet_address=WALLET.lower(), chain_id=8453, contract_address=f"0x{symbol.lower():0<40}",
+        wallet_address=WALLET.lower(), chain_id=8453, contract_address=address,
         asset_id=asset.id, quantity_raw=str(int(quantity * 10**decimals)), decimals=decimals,
         block_number=1, updated_at=datetime.now(UTC),
     ))
@@ -491,9 +497,11 @@ async def test_compute_portfolio_exposure_ranked_summary_sorted_by_magnitude(db:
 # ── Direct (stock token) / synthetic (crypto) / cash (stablecoin) split ────
 
 async def _seed_stablecoin_position(db: AsyncSession, symbol: str, quantity: float, decimals: int = 6) -> Asset:
+    address = f"0x{symbol.lower()}stable"
+    await _seed_portfolio_contract(db, 8453, address, decimals, symbol)
     asset = (await db.execute(select(Asset).where(Asset.symbol == symbol))).scalar_one()
     db.add(CachedWalletPosition(
-        wallet_address=WALLET.lower(), chain_id=8453, contract_address=f"0x{symbol.lower()}stable",
+        wallet_address=WALLET.lower(), chain_id=8453, contract_address=address,
         asset_id=asset.id, quantity_raw=str(int(quantity * 10**decimals)), decimals=decimals,
         block_number=1, updated_at=datetime.now(UTC),
     ))
@@ -513,10 +521,17 @@ async def _seed_stock_token_position(
     existing_price = (await db.execute(
         select(DailyPrice).where(DailyPrice.asset_id == asset.id, DailyPrice.date == date_cls.today().isoformat())
     )).scalar_one_or_none()
+    # Sets adj_close too — portfolio valuation now prefers adj_close over
+    # close (matching the same convention used for exposure scoring), so
+    # leaving a stale fixture-seeded adj_close in place would silently
+    # override this test's intended `price`.
     if existing_price:
         existing_price.close = price
+        existing_price.adj_close = price
     else:
-        db.add(DailyPrice(asset_id=asset.id, date=date_cls.today().isoformat(), close=price, is_demo=True))
+        db.add(DailyPrice(
+            asset_id=asset.id, date=date_cls.today().isoformat(), close=price, adj_close=price, is_demo=True,
+        ))
     await db.commit()
 
     contract_address = f"0x{symbol.lower()}stocktoken"
@@ -929,9 +944,15 @@ async def _authenticated_holder(client, db: AsyncSession, monkeypatch, tier: str
 
 
 async def _seed_position_for(db: AsyncSession, wallet: str, symbol: str, quantity: float, decimals: int = 18) -> None:
+    address = f"0x{symbol.lower():0<40}"
+    existing = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == address.lower())
+    )).scalar_one_or_none()
+    if existing is None:
+        await _seed_portfolio_contract(db, 8453, address, decimals, symbol)
     asset = (await db.execute(select(Asset).where(Asset.symbol == symbol))).scalar_one()
     db.add(CachedWalletPosition(
-        wallet_address=wallet.lower(), chain_id=8453, contract_address=f"0x{symbol.lower():0<40}",
+        wallet_address=wallet.lower(), chain_id=8453, contract_address=address,
         asset_id=asset.id, quantity_raw=str(int(quantity * 10**decimals)), decimals=decimals,
         block_number=1, updated_at=datetime.now(UTC),
     ))

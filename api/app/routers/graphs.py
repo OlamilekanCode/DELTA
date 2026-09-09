@@ -139,8 +139,13 @@ async def _get_live_graph(db: AsyncSession, stock: Asset, ctx: AccessContext, mi
     crypto_result = await db.execute(select(Asset).where(Asset.id.in_(crypto_ids)))
     crypto_by_id = {a.id: a for a in crypto_result.scalars().all()}
 
-    is_demo = any(s.is_demo for s in ready_rows)
-    data_ts = min((s.data_ts for s in ready_rows), default=None)
+    # Metadata (demo/data_ts/freshness) reflects ALL ready pairs, not just
+    # the threshold-filtered ones — a min_score that happens to filter out
+    # every edge must still report the real computed_at/freshness for this
+    # stock's live data, never None/"collecting_data" for data that
+    # actually exists (see all_ready_rows above).
+    is_demo = any(s.is_demo for s in all_ready_rows)
+    data_ts = min((s.data_ts for s in all_ready_rows), default=None)
     freshness = intraday_status(data_ts)
 
     nodes, edges = _build_nodes_and_edges(stock, [(s.crypto_id, s.score) for s in ready_rows], crypto_by_id)

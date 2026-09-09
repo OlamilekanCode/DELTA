@@ -179,6 +179,24 @@ async def _upsert_contract(
     return True
 
 
+async def _reconcile(db: AsyncSession, source: str, touched_keys: set[tuple[int, str]]) -> int:
+    """Guards _deactivate_stale_rows against an empty touched set — a
+    provider response that's technically valid (a real list) but contains
+    zero matched entries (network hiccup returning a near-empty page, an
+    API change silently dropping fields our own parsing then filters out,
+    etc.) must never be trusted as "confirmed: everything from this source
+    is gone now". Only reconciles when there's at least one touched
+    address as positive evidence this run actually saw real data."""
+    if not touched_keys:
+        log.warning(
+            "%s sync touched zero contracts this run — skipping reconciliation "
+            "rather than risk deactivating the entire source on a suspiciously empty response",
+            source,
+        )
+        return 0
+    return await _deactivate_stale_rows(db, source, touched_keys)
+
+
 async def _deactivate_stale_rows(db: AsyncSession, source: str, touched_keys: set[tuple[int, str]]) -> int:
     """After a sync pass, deactivate any previously-synced row from this
     same `source` whose (chain_id, contract_address) wasn't touched this
@@ -250,7 +268,7 @@ async def sync_crypto_contracts_from_coingecko(db: AsyncSession, cg: CoinGeckoPr
         if matched_this_coin:
             counts["matched"] += 1
 
-    counts["deactivated"] = await _deactivate_stale_rows(db, "coingecko", touched)
+    counts["deactivated"] = await _reconcile(db, "coingecko", touched)
     await db.commit()
     return counts
 
@@ -315,7 +333,7 @@ async def sync_robinhood_stock_tokens(db: AsyncSession, rh: RobinhoodAssetProvid
         if written:
             counts["contracts_written"] += 1
 
-    counts["deactivated"] = await _deactivate_stale_rows(db, "robinhood", touched)
+    counts["deactivated"] = await _reconcile(db, "robinhood", touched)
     await db.commit()
     return counts
 
