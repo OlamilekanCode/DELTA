@@ -65,6 +65,90 @@ async def test_cron_history_no_secret_returns_401(client: AsyncClient) -> None:
     assert resp.status_code == 401
 
 
+_FULLY_FAILED_COUNTS = {"requested": 20, "succeeded": 0, "skipped": 0, "failed": 20, "records_written": 0}
+_DEMO_SKIPPED_COUNTS = {"requested": 0, "succeeded": 0, "skipped": 1, "failed": 0, "records_written": 0}
+
+
+@pytest.mark.asyncio
+async def test_cron_history_includes_cleanup_counts(client: AsyncClient, monkeypatch) -> None:
+    """The endpoint must actually call cleanup and surface its counts, not
+    just claim to in its docstring."""
+    import app.routers.cron as cron_module
+
+    async def fake_cleanup() -> dict:
+        return {"intraday_prices_deleted": 3, "crypto_quote_observations_deleted": 7}
+
+    monkeypatch.setattr(cron_module, "cmd_cleanup_old_data", fake_cleanup)
+    resp = await client.post("/api/v1/cron/refresh-history-and-scores", headers={"x-cron-secret": _SECRET})
+    assert resp.status_code == 200
+    assert resp.json()["cleanup"] == {"intraday_prices_deleted": 3, "crypto_quote_observations_deleted": 7}
+
+
+@pytest.mark.asyncio
+async def test_cron_history_skips_recompute_when_stock_totally_fails(client: AsyncClient, monkeypatch) -> None:
+    """Crypto history can refresh fine while Marketstack is completely down —
+    that must never recompute scores from fresh crypto against stale stock
+    prices."""
+    import app.routers.cron as cron_module
+
+    async def fake_stock(**kwargs) -> dict:
+        return dict(_FULLY_FAILED_COUNTS)
+
+    async def fake_crypto() -> dict:
+        return dict(_DEMO_SKIPPED_COUNTS)
+
+    async def fail_if_called() -> int:
+        raise AssertionError("cmd_recompute_scores must not be called when stock ingestion totally failed")
+
+    monkeypatch.setattr(cron_module, "cmd_refresh_stock_eod", fake_stock)
+    monkeypatch.setattr(cron_module, "cmd_refresh_crypto_history", fake_crypto)
+    monkeypatch.setattr(cron_module, "cmd_recompute_scores", fail_if_called)
+
+    resp = await client.post("/api/v1/cron/refresh-history-and-scores", headers={"x-cron-secret": _SECRET})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["scores_written"] is None
+    assert body["scores_skipped_reason"] == "stock_eod_failed"
+    assert "cleanup" in body  # cleanup still ran despite the skipped recompute
+
+
+@pytest.mark.asyncio
+async def test_cron_history_returns_502_when_both_sides_totally_fail(client: AsyncClient, monkeypatch) -> None:
+    import app.routers.cron as cron_module
+
+    async def fake_stock(**kwargs) -> dict:
+        return dict(_FULLY_FAILED_COUNTS)
+
+    async def fake_crypto() -> dict:
+        return dict(_FULLY_FAILED_COUNTS)
+
+    monkeypatch.setattr(cron_module, "cmd_refresh_stock_eod", fake_stock)
+    monkeypatch.setattr(cron_module, "cmd_refresh_crypto_history", fake_crypto)
+
+    resp = await client.post("/api/v1/cron/refresh-history-and-scores", headers={"x-cron-secret": _SECRET})
+    assert resp.status_code == 502
+    assert "cleanup" in resp.json()["detail"]  # cleanup still ran and is visible even on hard failure
+
+
+@pytest.mark.asyncio
+async def test_cron_history_unexpected_exception_never_leaks_message(client: AsyncClient, monkeypatch) -> None:
+    """An unexpected exception must return a generic 5xx without echoing the
+    raw exception text back to the caller."""
+    import app.routers.cron as cron_module
+
+    secret_looking_message = "boom: MARKETSTACK_API_KEY=super-secret-value-123"
+
+    async def fake_stock(**kwargs) -> dict:
+        raise ValueError(secret_looking_message)
+
+    monkeypatch.setattr(cron_module, "cmd_refresh_stock_eod", fake_stock)
+    resp = await client.post("/api/v1/cron/refresh-history-and-scores", headers={"x-cron-secret": _SECRET})
+    assert resp.status_code == 502
+    assert "super-secret-value-123" not in resp.text
+    assert resp.json()["detail"]["error"] == "internal_error"
+
+
 @pytest.mark.asyncio
 async def test_cron_refresh_intraday_ok(client: AsyncClient) -> None:
     """With USE_DEMO_DATA=true, cmd_refresh_intraday() skips immediately —

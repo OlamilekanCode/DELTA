@@ -59,13 +59,19 @@ async function dispatch(base, endpoint, secret) {
     });
   } catch (err) {
     console.error(`${endpoint}: network error —`, err.message);
-    return;
+    // Re-throw so the promise passed to ctx.waitUntil() rejects — Cloudflare
+    // only marks a scheduled invocation as failed (visible in the dashboard
+    // and wrangler tail) when the handler actually throws, never from a log
+    // line alone.
+    throw err;
   }
 
   const body = await resp.text();
   if (resp.ok) {
     console.log(`${endpoint}: ${resp.status} ${body}`);
-  } else {
-    console.error(`${endpoint}: ${resp.status} ${body}`);
+    return;
   }
+
+  console.error(`${endpoint}: ${resp.status} ${body}`);
+  throw new Error(`${endpoint} failed with status ${resp.status}: ${body}`);
 }

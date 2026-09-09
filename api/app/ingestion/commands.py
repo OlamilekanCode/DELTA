@@ -162,7 +162,7 @@ async def cmd_refresh_crypto_quotes() -> dict:
 async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> dict:
     """Refresh EOD prices for every stock."""
     settings = get_settings()
-    counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0}
+    counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0, "records_written": 0}
     if settings.use_demo_data:
         log.info("USE_DEMO_DATA=true — skipping live stock refresh")
         counts["skipped"] = 1
@@ -191,6 +191,7 @@ async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> dict:
                 n = await ingest_asset(asset_db, asset, ms)
                 log.info("%s: %d rows upserted", symbol, n)
                 counts["succeeded"] += 1
+                counts["records_written"] += n
         except Exception:
             log.exception("Failed to refresh %s — skipping, existing data preserved", symbol)
             counts["failed"] += 1
@@ -200,7 +201,7 @@ async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> dict:
 async def cmd_refresh_crypto_history() -> dict:
     """Refresh 90-day OHLCV history for every crypto asset from CoinGecko."""
     settings = get_settings()
-    counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0}
+    counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0, "records_written": 0}
     if settings.use_demo_data:
         log.info("USE_DEMO_DATA=true — skipping live crypto history refresh")
         counts["skipped"] = 1
@@ -224,6 +225,7 @@ async def cmd_refresh_crypto_history() -> dict:
                 n = await ingest_asset(asset_db, asset, cg)
                 log.info("%s: %d rows upserted", symbol, n)
                 counts["succeeded"] += 1
+                counts["records_written"] += n
         except Exception:
             log.exception("Failed to refresh %s — skipping, existing data preserved", symbol)
             counts["failed"] += 1

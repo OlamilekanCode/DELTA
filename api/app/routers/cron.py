@@ -24,11 +24,13 @@ demo mode).
 """
 
 import hmac
+import logging
 
 from fastapi import APIRouter, Header, HTTPException
 
 from app.config import get_settings
 from app.ingestion.commands import (
+    cmd_cleanup_old_data,
     cmd_recompute_scores,
     cmd_refresh_crypto_history,
     cmd_refresh_crypto_quotes,
@@ -36,6 +38,8 @@ from app.ingestion.commands import (
     cmd_refresh_stock_eod,
 )
 from app.ingestion.lock import JobAlreadyRunningError, advisory_lock
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -96,19 +100,53 @@ async def trigger_refresh_history_and_scores(
         async with advisory_lock(_LOCK_NAME):
             stock_counts = await cmd_refresh_stock_eod(skip_weekends=False)
             crypto_counts = await cmd_refresh_crypto_history()
-            scores_written = await cmd_recompute_scores()
+
+            # A complete failure on either side must never be papered over by
+            # recomputing scores that would correlate genuinely fresh data on
+            # one side against silently-stale, un-refreshed data on the
+            # other — skip recomputation entirely rather than write a
+            # misleading result.
+            stock_failed = _job_failed(stock_counts)
+            crypto_failed = _job_failed(crypto_counts)
+            scores_written = None
+            scores_skipped_reason = None
+            if stock_failed or crypto_failed:
+                scores_skipped_reason = "stock_eod_failed" if stock_failed else "crypto_history_failed"
+                if stock_failed and crypto_failed:
+                    scores_skipped_reason = "stock_eod_and_crypto_history_failed"
+                log.warning(
+                    "Skipping score recomputation — %s (stock=%s, crypto=%s)",
+                    scores_skipped_reason, stock_counts, crypto_counts,
+                )
+            else:
+                scores_written = await cmd_recompute_scores()
+
+            # Cleanup runs regardless of provider outcome — it only prunes
+            # aged rows on retention policy, never touches historical scores
+            # or daily prices, and must not be silently skipped just because
+            # a provider refresh failed above.
+            try:
+                cleanup_counts = await cmd_cleanup_old_data()
+            except Exception:
+                log.exception("Retention cleanup failed — provider refresh result above is unaffected")
+                cleanup_counts = {"error": "cleanup_failed"}
     except JobAlreadyRunningError as e:
         return {"ok": False, "skipped": True, "message": str(e)}
-    except RuntimeError as e:
-        raise HTTPException(status_code=502, detail=f"refresh-history-and-scores failed: {e}") from e
+    except Exception:
+        log.exception("refresh-history-and-scores failed unexpectedly")
+        raise HTTPException(
+            status_code=502,
+            detail={"command": "refresh-history-and-scores", "error": "internal_error"},
+        ) from None
 
-    if _job_failed(stock_counts) and _job_failed(crypto_counts):
+    if stock_failed and crypto_failed:
         raise HTTPException(
             status_code=502,
             detail={
                 "command": "refresh-history-and-scores",
                 "stock_eod": stock_counts,
                 "crypto_history": crypto_counts,
+                "cleanup": cleanup_counts,
             },
         )
     return {
@@ -117,6 +155,8 @@ async def trigger_refresh_history_and_scores(
         "stock_eod": stock_counts,
         "crypto_history": crypto_counts,
         "scores_written": scores_written,
+        "scores_skipped_reason": scores_skipped_reason,
+        "cleanup": cleanup_counts,
     }
 
 
