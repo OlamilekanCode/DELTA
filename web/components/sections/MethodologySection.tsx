@@ -15,7 +15,7 @@ const cards = [
   {
     tag: "02",
     title: "Correlation\ncan change",
-    body: "Market regime shifts, macroeconomic events, and sector rotations can rapidly alter correlations. Synthetic Exposure recalculates scores after each market close.",
+    body: "Market regime shifts, macroeconomic events, and sector rotations can rapidly alter correlations. Historical Exposure Scores recalculate Tuesday and Friday after market close; live Exposure Scores update after every completed 30-minute market interval while the US market is open.",
     color: "#3D7BFF",
     bg: "rgba(61,123,255,0.05)",
     border: "rgba(61,123,255,0.2)",
@@ -64,7 +64,7 @@ export default function MethodologySection() {
           >
             <div>
               <p className="max-w-sm font-mono text-sm leading-relaxed text-muted">
-                Pearson correlation on 90-day aligned daily log returns. Data: Marketstack + CoinGecko. Recalculated nightly.
+                Pearson correlation on 90-day aligned daily log returns. Data: Marketstack + CoinGecko. Recalculated Tuesday and Friday after market close; live scores update every completed 30-minute interval — crypto prices refresh continuously, but live Exposure Scores freeze while the US market is closed.
               </p>
               <Link
                 href="/methodology"

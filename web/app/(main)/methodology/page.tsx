@@ -143,9 +143,11 @@ export default function MethodologyPage() {
 
       <Section title="Update schedule">
         <p>
-          Scores are recalculated after the relevant stock market closes and optionally every 6 hours.
-          Scores are pre-computed and cached — they are <strong className="text-text">not</strong>{" "}
-          recalculated during a page request.
+          Historical Exposure Scores recalculate Tuesday and Friday after US market close. Live
+          Exposure Scores update after every completed 30-minute market interval while the US
+          market is open, and freeze (never recalculated) while it is closed — crypto prices keep
+          updating continuously in the background. Scores are pre-computed and cached — they are{" "}
+          <strong className="text-text">not</strong> recalculated during a page request.
         </p>
         <p>Data freshness is shown on every score card and graph node.</p>
       </Section>
