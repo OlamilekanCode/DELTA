@@ -151,6 +151,7 @@ export default function PortfolioExposure({ stocks }: { stocks: ApiAsset[] }) {
               Get $SynthEx
             </a>
           )}
+          <div className="w-full max-w-md"><PurchaseVerificationForm /></div>
         </Shell>
       );
 
@@ -172,6 +173,7 @@ export default function PortfolioExposure({ stocks }: { stocks: ApiAsset[] }) {
               Get $SynthEx
             </a>
           )}
+          <div className="w-full max-w-md"><PurchaseVerificationForm /></div>
         </Shell>
       );
 
@@ -192,6 +194,7 @@ export default function PortfolioExposure({ stocks }: { stocks: ApiAsset[] }) {
               Buy $SynthEx
             </a>
           )}
+          <div className="w-full max-w-md"><PurchaseVerificationForm /></div>
         </Shell>
       );
 
@@ -286,6 +289,109 @@ function RefreshWalletAssetsControl({ onRefreshed }: { onRefreshed: () => void }
       )}
       {refreshState.kind === "error" && (
         <span className="font-mono text-xs text-red-400">{refreshState.message}</span>
+      )}
+    </div>
+  );
+}
+
+const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
+
+interface VerifyPurchaseResponse {
+  status: string;
+  message?: string | null;
+  tier?: string;
+  cumulative_usd?: number;
+  usd_value?: number;
+}
+
+const PURCHASE_STATUS_LABELS: Record<string, string> = {
+  not_configured: "Purchase verification isn't configured yet.",
+  invalid: "This transaction couldn't be verified.",
+  pending: "Waiting for more confirmations — try again shortly.",
+  already_claimed: "This transaction has already been claimed.",
+  price_unavailable: "No ETH/USD price is available for this transaction's time yet — try again shortly.",
+  unsupported_purchase_method: "This purchase method isn't supported for verification yet.",
+  unable_to_determine_net_spend: "Couldn't determine how much ETH/WETH was spent on this transaction.",
+  rpc_error: "Network error while verifying — try again shortly.",
+};
+
+function PurchaseVerificationForm() {
+  const queryClient = useQueryClient();
+  const [txHash, setTxHash] = useState("");
+  const [state, setState] = useState<
+    { kind: "idle" } | { kind: "loading" } | { kind: "result"; result: VerifyPurchaseResponse }
+  >({ kind: "idle" });
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = txHash.trim();
+    if (!TX_HASH_RE.test(trimmed)) {
+      setState({
+        kind: "result",
+        result: { status: "invalid", message: "Enter a valid transaction hash (0x followed by 64 hex characters)." },
+      });
+      return;
+    }
+    setState({ kind: "loading" });
+    try {
+      const res = await fetch("/api/entitlements/verify-purchase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tx_hash: trimmed }),
+      });
+      const body = (await res.json().catch(() => null)) as VerifyPurchaseResponse | null;
+      if (!body) {
+        setState({ kind: "result", result: { status: "error", message: "Couldn't reach the server — try again shortly." } });
+        return;
+      }
+      setState({ kind: "result", result: body });
+      if (body.status === "verified") {
+        setTxHash("");
+        queryClient.invalidateQueries({ queryKey: ["entitlements-status"] });
+        queryClient.invalidateQueries({ queryKey: ["portfolio-exposure"] });
+      }
+    } catch {
+      setState({ kind: "result", result: { status: "error", message: "Couldn't reach the server — try again shortly." } });
+    }
+  }
+
+  const result = state.kind === "result" ? state.result : null;
+  const toneClass =
+    result?.status === "verified"
+      ? "text-green"
+      : result?.status === "pending" || result?.status === "already_claimed" || result?.status === "price_unavailable"
+        ? "text-amber"
+        : "text-red-400";
+
+  return (
+    <div className="rounded-2xl border border-white/[0.09] bg-panel p-6 text-left">
+      <p className="mb-1 font-mono text-xs uppercase tracking-widest text-muted">Verify a $SynthEx Purchase</p>
+      <p className="mb-3 font-mono text-xs text-muted/70">
+        Paste the transaction hash of your $SynthEx/ETH purchase to unlock or upgrade your tier.
+      </p>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2 sm:flex-row">
+        <input
+          type="text"
+          value={txHash}
+          onChange={(e) => setTxHash(e.target.value)}
+          placeholder="0x…"
+          spellCheck={false}
+          className="flex-1 rounded-xl border border-white/[0.09] bg-panel2 px-3 py-2 font-mono text-sm text-text focus:border-violet focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={state.kind === "loading" || !txHash.trim()}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet px-4 py-2 font-mono text-xs font-bold text-white transition-all hover:bg-violet/90 active:scale-95 disabled:opacity-50"
+        >
+          {state.kind === "loading" ? "Verifying…" : "Verify Purchase"}
+        </button>
+      </form>
+      {result && (
+        <p className={`mt-3 font-mono text-xs ${toneClass}`}>
+          {result.status === "verified"
+            ? `Verified — tier is now ${TIER_LABELS[result.tier ?? ""] ?? result.tier}.`
+            : (PURCHASE_STATUS_LABELS[result.status] ?? result.message ?? "Verification failed.")}
+        </p>
       )}
     </div>
   );
@@ -436,6 +542,10 @@ function PortfolioDetail({
           ))}
         </div>
       )}
+
+      <div className="mt-4">
+        <PurchaseVerificationForm />
+      </div>
 
       <Link href="/" className="mt-6 inline-block font-mono text-xs text-muted/60 underline-offset-4 hover:text-muted hover:underline">
         ← Back to home

@@ -27,7 +27,7 @@ export async function getSessionToken(): Promise<string | null> {
  */
 export async function proxyToBackend(
   path: string,
-  options: { requireAuth?: boolean; method?: "GET" | "POST" } = {}
+  options: { requireAuth?: boolean; method?: "GET" | "POST"; body?: unknown } = {}
 ): Promise<Response> {
   if (!BACKEND_URL) {
     return Response.json({ error: "backend_not_configured" }, { status: 503 });
@@ -40,10 +40,12 @@ export async function proxyToBackend(
 
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
 
   const res = await fetch(`${BACKEND_URL}${path}`, {
     method: options.method ?? "GET",
     headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
   });
   const body = await res.json().catch(() => ({}));
