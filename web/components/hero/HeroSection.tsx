@@ -227,6 +227,32 @@ export default function HeroSection() {
         </div>
       </div>
 
+      {/* ── $SynthEx unlock callout — same full-width strip design as the Main Access Token bar ── */}
+      <div
+        className="relative z-10 w-full border-t"
+        style={{
+          borderColor: "rgba(109,74,255,0.25)",
+          background: "rgba(6,8,16,0.92)",
+          backdropFilter: "blur(16px)",
+        }}
+      >
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-2">
+            <motion.span
+              className="size-2 shrink-0 rounded-full bg-violet"
+              animate={reduced ? {} : { opacity: [1, 0.3, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              aria-hidden="true"
+            />
+            <span className="font-mono text-sm font-bold text-violet-light">$SynthEx</span>
+          </div>
+          <span className="text-white/20">·</span>
+          <span className="font-mono text-xs text-muted">
+            Hold <span className="font-semibold text-violet-light">$SynthEx</span> to unlock an extended universe — far beyond the current 8 stocks &amp; 30 crypto assets — plus advanced Exposure Scores and deeper graph levels.
+          </span>
+        </div>
+      </div>
+
       {/* ── $SynthEx CA strip — full viewport width ── */}
       <div
         className="relative z-10 w-full border-t"

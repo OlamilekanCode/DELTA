@@ -177,6 +177,7 @@ function GraphInner({ graphData }: { graphData: ApiGraphResult }) {
         minZoom={0.3}
         maxZoom={3}
         style={{ background: "transparent" }}
+        proOptions={{ hideAttribution: true }}
       >
         <Background
           variant={BackgroundVariant.Dots}
@@ -185,6 +186,7 @@ function GraphInner({ graphData }: { graphData: ApiGraphResult }) {
           color="rgba(255,255,255,0.06)"
         />
         <Controls
+          className="exposure-graph-controls"
           style={{ background: "rgba(15,12,30,0.8)", border: "1px solid rgba(255,255,255,0.09)" }}
           showInteractive={false}
         />
