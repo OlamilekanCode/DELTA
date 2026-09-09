@@ -10,6 +10,7 @@ production RPC endpoint and contract addresses are missing.
 """
 
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -33,6 +34,36 @@ _TX_HASH_RE = re.compile(r"^0x[a-fA-F0-9]{64}$")
 _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 
+@dataclass(frozen=True)
+class RouterAdapter:
+    """Method selectors on a specific router/pool address that are confirmed
+    (by reading the deployed contract source, not guessed) to consume the
+    entire `msg.value` with no refund path — e.g. an "exact ETH in" swap. Any
+    selector NOT listed here — including on an unregistered router — is
+    treated as potentially refund-capable, so raw `tx.value` is never trusted
+    as net spend without this explicit proof."""
+
+    exact_input_selectors: frozenset[str]
+
+
+# Populate only once a real Robinhood Chain router/pool address and its
+# audited method selectors are confirmed — never guessed or assumed from a
+# generic ABI. Empty means every native-ETH purchase currently returns
+# unsupported_purchase_method; WETH-Transfer-log-based purchases are exact by
+# construction and don't depend on this registry at all.
+ROUTER_ADAPTERS: dict[str, RouterAdapter] = {}
+
+
+def _native_eth_fully_consumed(destination_address: str | None, input_data: str) -> bool:
+    if not destination_address:
+        return False
+    adapter = ROUTER_ADAPTERS.get(destination_address.lower())
+    if adapter is None:
+        return False
+    selector = (input_data or "0x")[:10].lower()
+    return selector in adapter.exact_input_selectors
+
+
 def _decode_address_topic(topic: str) -> str:
     return "0x" + topic[-40:].lower()
 
@@ -42,6 +73,11 @@ def _decode_uint(data: str) -> int:
 
 
 def _is_configured(settings) -> bool:
+    # A missing/zero launch block in production would let a pre-launch or
+    # unrelated historical transaction be claimed as a $SynthEx purchase —
+    # fail closed rather than allow verification without it.
+    if settings.app_env == "production" and settings.synthex_token_start_block <= 0:
+        return False
     return bool(
         settings.synthex_chain_id
         and settings.robinhood_rpc_url
@@ -113,6 +149,12 @@ async def verify_purchase(
     except Exception as e:  # noqa: BLE001 — any transport failure fails closed
         return {"status": "rpc_error", "message": f"unexpected RPC failure: {e}"}
 
+    if tx.hash.lower() != tx_hash.lower():
+        return {"status": "invalid", "message": "RPC transaction hash does not match the submitted hash"}
+
+    if tx.block_number is None or tx.block_number != receipt.block_number:
+        return {"status": "invalid", "message": "Transaction and receipt block numbers do not agree"}
+
     if receipt.status != 1:
         return {"status": "invalid", "message": "Transaction reverted"}
 
@@ -122,6 +164,9 @@ async def verify_purchase(
             "status": "pending",
             "message": f"{confirmations}/{settings.synthex_min_confirmations} confirmations",
         }
+
+    if settings.synthex_token_start_block > 0 and receipt.block_number < settings.synthex_token_start_block:
+        return {"status": "invalid", "message": "Transaction occurred before the configured $SynthEx launch block"}
 
     if tx.from_address != wallet_lower:
         return {"status": "invalid", "message": "Transaction was not sent by the authenticated wallet"}
@@ -134,6 +179,7 @@ async def verify_purchase(
     weth_address = settings.synthex_weth_address.lower()
 
     synthex_received = 0
+    synthex_source_address: str | None = None
     weth_spent = 0
     for log in receipt.logs:
         topics = log.get("topics") or []
@@ -146,19 +192,42 @@ async def verify_purchase(
         to_addr = _decode_address_topic(topics[2])
         amount = _decode_uint(log.get("data", "0x"))
 
-        if log_address == token_address and to_addr == wallet_lower:
+        # Only a $SynthEx transfer that both lands in the wallet AND
+        # originates from an approved router/pool counts — otherwise anyone
+        # could "fake" a purchase by simply sending the wallet real tokens
+        # from an unrelated address.
+        if log_address == token_address and to_addr == wallet_lower and from_addr in allowed_destinations:
             synthex_received += amount
+            synthex_source_address = from_addr
         if log_address == weth_address and from_addr == wallet_lower and to_addr in allowed_destinations:
             weth_spent += amount
 
     if synthex_received == 0:
-        return {"status": "invalid", "message": "No $SynthEx transfer to the authenticated wallet was found"}
+        return {
+            "status": "invalid",
+            "message": "No $SynthEx transfer from an approved router/pool to the authenticated wallet was found",
+        }
 
-    # ETH spent: native ETH value on the transaction itself, or WETH transferred
-    # out of the wallet toward the router/pool if the swap used wrapped ETH.
-    eth_spent_wei = tx.value_wei if tx.value_wei > 0 else weth_spent
-    if eth_spent_wei == 0:
-        return {"status": "invalid", "message": "Could not determine ETH/WETH amount spent"}
+    # ETH spent: a WETH Transfer log is exact by construction (no refund
+    # ambiguity). Native ETH's tx.value is only trusted when the destination
+    # router/pool and called method are confirmed (via ROUTER_ADAPTERS) to
+    # consume the full value with no refund — otherwise we cannot safely
+    # rule out an excess-ETH refund inflating the claimed spend, so we
+    # decline rather than guess.
+    if weth_spent > 0:
+        eth_spent_wei = weth_spent
+    elif tx.value_wei > 0:
+        if not _native_eth_fully_consumed(tx.to_address, tx.input_data):
+            return {
+                "status": "unsupported_purchase_method",
+                "message": (
+                    "Native ETH spend cannot be safely verified for this router/pool method yet — "
+                    "use a WETH-based swap, or wait for support for this router method"
+                ),
+            }
+        eth_spent_wei = tx.value_wei
+    else:
+        return {"status": "unable_to_determine_net_spend", "message": "Could not determine ETH/WETH amount spent"}
 
     block = await provider.get_block(receipt.block_number)
     if block is None:
@@ -191,7 +260,7 @@ async def verify_purchase(
         usd_value_cents=usd_value_cents,
         synthex_received_raw=str(synthex_received),
         router_address=tx.to_address,
-        pool_address=tx.to_address if tx.to_address in settings.parsed_dex_pool_addresses else "",
+        pool_address=synthex_source_address or "",
         verified_at=now,
         created_at=now,
     )

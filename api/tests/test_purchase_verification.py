@@ -10,7 +10,7 @@ from app.models.crypto_observation import CryptoQuoteObservation
 from app.models.purchase import ClaimedPurchaseTransaction
 from app.services import purchase_verification as pv_module
 from app.services.blockchain import BlockData, MockRpcProvider, TransactionData, TransactionReceipt
-from app.services.purchase_verification import verify_purchase
+from app.services.purchase_verification import RouterAdapter, verify_purchase
 
 WALLET = "0x" + "1" * 40
 TOKEN = "0x" + "2" * 40
@@ -66,22 +66,28 @@ def _mock_provider(
     chain_id=CHAIN_ID,
     block_number=1000,
     tx_block=990,
+    receipt_block=None,
     from_address=WALLET,
     to_address=ROUTER,
     value_wei=0,
     status=1,
     logs=None,
     block_timestamp=None,
+    input_data="0x",
+    tx_hash_field=None,
 ) -> MockRpcProvider:
     ts = block_timestamp or datetime.now(UTC)
     return MockRpcProvider(
         chain_id=chain_id,
         block_number=block_number,
         transactions={TX_HASH.lower(): TransactionData(
-            hash=TX_HASH, from_address=from_address.lower(), to_address=to_address.lower() if to_address else None,
-            value_wei=value_wei, block_number=tx_block, input_data="0x",
+            hash=tx_hash_field or TX_HASH, from_address=from_address.lower(),
+            to_address=to_address.lower() if to_address else None,
+            value_wei=value_wei, block_number=tx_block, input_data=input_data,
         )},
-        receipts={TX_HASH.lower(): TransactionReceipt(status=status, block_number=tx_block, logs=logs or [])},
+        receipts={TX_HASH.lower(): TransactionReceipt(
+            status=status, block_number=receipt_block if receipt_block is not None else tx_block, logs=logs or [],
+        )},
         blocks={tx_block: BlockData(number=tx_block, timestamp=int(ts.timestamp()))},
     )
 
@@ -105,14 +111,24 @@ async def test_verify_purchase_rejects_malformed_hash(db: AsyncSession, configur
     assert result["status"] == "invalid"
 
 
+_EXACT_ETH_IN_SELECTOR = "0x7ff36ab5"  # e.g. swapExactETHForTokens — full msg.value consumed, no refund
+
+
 @pytest.mark.asyncio
-async def test_verify_purchase_success(db: AsyncSession, configured) -> None:
+async def test_verify_purchase_success_native_eth_via_confirmed_adapter(db: AsyncSession, configured, monkeypatch) -> None:
+    """Native ETH is only trusted once the destination router/pool and the
+    exact method called are confirmed (via ROUTER_ADAPTERS) to consume the
+    entire msg.value with no refund path."""
+    monkeypatch.setitem(
+        pv_module.ROUTER_ADAPTERS, ROUTER.lower(), RouterAdapter(exact_input_selectors=frozenset({_EXACT_ETH_IN_SELECTOR}))
+    )
     now = datetime.now(UTC)
     await _seed_eth_price(db, now - timedelta(seconds=5))
     mock = _mock_provider(
         value_wei=10**18,  # 1 ETH direct
         logs=[_transfer_log(TOKEN, ROUTER, WALLET, 500 * 10**18)],
         block_timestamp=now,
+        input_data=_EXACT_ETH_IN_SELECTOR + "0" * 56,
     )
     result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
     assert result["status"] == "verified"
@@ -122,6 +138,34 @@ async def test_verify_purchase_success(db: AsyncSession, configured) -> None:
     row = (await db.execute(select(ClaimedPurchaseTransaction).where(ClaimedPurchaseTransaction.tx_hash == TX_HASH.lower()))).scalar_one()
     assert row.wallet_address == WALLET.lower()
     assert row.usd_value_cents == 300000
+    assert row.pool_address == ROUTER.lower()  # real transfer-log source, not just copied from tx.to
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_rejects_native_eth_with_no_registered_adapter(db: AsyncSession, configured) -> None:
+    """No router/pool has a confirmed adapter yet (ROUTER_ADAPTERS starts
+    empty) — native ETH must never be trusted by default."""
+    mock = _mock_provider(value_wei=10**18, logs=[_transfer_log(TOKEN, ROUTER, WALLET, 500 * 10**18)])
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "unsupported_purchase_method"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_rejects_refund_capable_native_eth_method(db: AsyncSession, configured, monkeypatch) -> None:
+    """Even with an adapter registered for this router, a method selector
+    NOT in its exact-input set (e.g. one that can refund excess ETH) must
+    never be trusted — raw tx.value could overstate the real spend."""
+    monkeypatch.setitem(
+        pv_module.ROUTER_ADAPTERS, ROUTER.lower(), RouterAdapter(exact_input_selectors=frozenset({_EXACT_ETH_IN_SELECTOR}))
+    )
+    refund_capable_selector = "0xfb3bdb41"  # e.g. swapETHForExactTokens — can refund unused ETH
+    mock = _mock_provider(
+        value_wei=10**18,
+        logs=[_transfer_log(TOKEN, ROUTER, WALLET, 500 * 10**18)],
+        input_data=refund_capable_selector + "0" * 56,
+    )
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "unsupported_purchase_method"
 
 
 @pytest.mark.asyncio
@@ -197,9 +241,85 @@ async def test_verify_purchase_rejects_unrelated_token_transfer(db: AsyncSession
 
 
 @pytest.mark.asyncio
+async def test_verify_purchase_rejects_spoofed_synthex_transfer(db: AsyncSession, configured) -> None:
+    """A real $SynthEx transfer sent to the wallet from an address that is
+    NOT an approved router/pool must never count — otherwise anyone could
+    fake a "purchase" by just sending the wallet tokens directly."""
+    unapproved_source = "0x" + "6" * 40
+    mock = _mock_provider(logs=[_transfer_log(TOKEN, unapproved_source, WALLET, 500 * 10**18)])
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_rejects_wrong_pool_source(db: AsyncSession, monkeypatch) -> None:
+    """The transaction destination (tx.to) can be an approved router while
+    the $SynthEx transfer's actual on-chain source is a different,
+    unapproved pool — the destination check alone is not enough."""
+    other_pool = "0x" + "8" * 40
+    settings = _configured_settings(synthex_dex_pool_addresses=other_pool)
+    monkeypatch.setattr(pv_module, "get_settings", lambda: settings)
+    # ROUTER is approved as a router destination, but the token transfer log
+    # claims to originate from an address that is neither ROUTER nor the
+    # approved pool.
+    unapproved_source = "0x" + "6" * 40
+    mock = _mock_provider(to_address=ROUTER, logs=[_transfer_log(TOKEN, unapproved_source, WALLET, 1)])
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_rejects_tx_receipt_block_mismatch(db: AsyncSession, configured) -> None:
+    mock = _mock_provider(tx_block=990, receipt_block=991, logs=[_transfer_log(TOKEN, ROUTER, WALLET, 1)])
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_rejects_tx_hash_mismatch(db: AsyncSession, configured) -> None:
+    """Defends against a misbehaving/compromised RPC returning a transaction
+    object for a different hash than the one requested."""
+    other_hash = "0x" + "f" * 64
+    mock = _mock_provider(tx_hash_field=other_hash, logs=[_transfer_log(TOKEN, ROUTER, WALLET, 1)])
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_rejects_pre_launch_block(db: AsyncSession, monkeypatch) -> None:
+    settings = _configured_settings(synthex_token_start_block=1000)
+    monkeypatch.setattr(pv_module, "get_settings", lambda: settings)
+    mock = _mock_provider(tx_block=990, logs=[_transfer_log(TOKEN, ROUTER, WALLET, 1)])
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_unable_to_determine_net_spend(db: AsyncSession, configured) -> None:
+    """A genuine $SynthEx transfer exists, but there is no native ETH value
+    and no WETH Transfer log to account for what was spent — must decline
+    rather than guess a spend amount."""
+    mock = _mock_provider(value_wei=0, logs=[_transfer_log(TOKEN, ROUTER, WALLET, 500 * 10**18)])
+    result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
+    assert result["status"] == "unable_to_determine_net_spend"
+
+
+@pytest.mark.asyncio
+async def test_verify_purchase_production_requires_start_block(db: AsyncSession, monkeypatch) -> None:
+    settings = _configured_settings(app_env="production", synthex_token_start_block=0)
+    monkeypatch.setattr(pv_module, "get_settings", lambda: settings)
+    result = await verify_purchase(db, WALLET, TX_HASH)
+    assert result["status"] == "not_configured"
+
+
+@pytest.mark.asyncio
 async def test_verify_purchase_price_unavailable(db: AsyncSession, configured) -> None:
     old_ts = datetime.now(UTC) - timedelta(days=400)
-    mock = _mock_provider(value_wei=10**18, logs=[_transfer_log(TOKEN, ROUTER, WALLET, 1)], block_timestamp=old_ts)
+    mock = _mock_provider(
+        value_wei=0,
+        logs=[_transfer_log(WETH, WALLET, ROUTER, 1), _transfer_log(TOKEN, ROUTER, WALLET, 1)],
+        block_timestamp=old_ts,
+    )
     result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
     assert result["status"] == "price_unavailable"
 
@@ -224,7 +344,14 @@ async def test_verify_purchase_updates_entitlement_tier(db: AsyncSession, config
     now = datetime.now(UTC)
     await _seed_eth_price(db, now - timedelta(seconds=5), price=100.0)
     # 1 ETH * $100 = $100 → within the $50-$249.99 "summary" tier
-    mock = _mock_provider(value_wei=10**18, logs=[_transfer_log(TOKEN, ROUTER, WALLET, 1000 * 10**18)], block_timestamp=now)
+    mock = _mock_provider(
+        value_wei=0,
+        logs=[
+            _transfer_log(WETH, WALLET, ROUTER, 10**18),
+            _transfer_log(TOKEN, ROUTER, WALLET, 1000 * 10**18),
+        ],
+        block_timestamp=now,
+    )
     result = await verify_purchase(db, WALLET, TX_HASH, rpc=mock)
     assert result["status"] == "verified"
     assert result["tier"] == "summary"
