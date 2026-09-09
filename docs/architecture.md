@@ -122,6 +122,12 @@ Sessions last 30 days. Switching the connected wallet address ends the active se
 
 All three fail closed — they return an honest `not_configured`/empty state until `ROBINHOOD_RPC_URL`, `SYNTHEX_TOKEN_ADDRESS`, router/pool addresses, and (for portfolio) a populated contract list are supplied. The private `ROBINHOOD_RPC_URL` never reaches the frontend.
 
+**Currently unconfigured — not yet live:**
+
+- `services/portfolio_assets.py`'s `PORTFOLIO_ASSET_CONTRACTS` list is empty. No Robinhood Chain (or Ethereum/Base) token contract address has been confirmed yet, so `refresh_wallet_positions()` has nothing to read — this is expected, not a bug, and portfolio refresh reports `not_configured` accordingly rather than a misleading zero.
+- `ETHEREUM_RPC_URL` and `BASE_RPC_URL` are unset, so portfolio reads on those chains stay disabled even once `PORTFOLIO_CHAIN_IDS` includes them.
+- `SYNTHEX_DEX_ROUTER_ADDRESSES`, `SYNTHEX_DEX_POOL_ADDRESSES`, `SYNTHEX_WETH_ADDRESS` and `SYNTHEX_TOKEN_START_BLOCK` are all unset in this environment — purchase verification fails closed until every one of them is supplied, and native-ETH purchases additionally require a confirmed router method registered in `purchase_verification.ROUTER_ADAPTERS` (also empty today) before raw `tx.value` can ever be trusted.
+
 ---
 
 ## Cron scheduling

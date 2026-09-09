@@ -107,7 +107,7 @@ pip install -r requirements.txt                                    # build
 alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT   # start
 ```
 
-Database is Render PostgreSQL. Schema changes are Alembic-only in production — the app never runs `create_all()` against Postgres.
+Database is Render PostgreSQL. Schema changes are Alembic-only in production — the app never runs `create_all()` against Postgres. Never run `alembic downgrade` or migration testing against the production database — verify migrations against a disposable local/staging database only.
 
 ### Scheduler — Cloudflare Worker + Cron
 

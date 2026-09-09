@@ -40,7 +40,7 @@ With `USE_DEMO_DATA=true` (default), the server seeds deterministic fixture data
 # Apply all pending migrations
 alembic upgrade head
 
-# Downgrade one step (for testing)
+# Downgrade one step — local/disposable databases only, never production
 alembic downgrade -1
 
 # Create a new migration after model changes
