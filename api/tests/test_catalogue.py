@@ -81,10 +81,14 @@ def test_no_stablecoins_categorized_as_crypto() -> None:
 
 
 def test_stablecoins_have_own_asset_type() -> None:
+    """Stablecoins DO carry a real coingecko_id — deliberately, so a live
+    quote can be fetched and an actual depeg reflected (see
+    services/portfolio.py) — but must stay asset_type "stablecoin", never
+    "crypto" (see test_no_stablecoins_categorized_as_crypto above)."""
     stablecoin_assets = [a for a in FIXTURE_ASSETS if a["symbol"] in STABLECOINS]
     for a in stablecoin_assets:
         assert a["asset_type"] == "stablecoin", f"{a['symbol']} should be asset_type 'stablecoin', got {a['asset_type']!r}"
-        assert a.get("coingecko_id") is None, f"{a['symbol']} should not have coingecko_id"
+        assert a.get("coingecko_id"), f"{a['symbol']} should have a coingecko_id for live depeg-quote lookups"
 
 
 def test_crypto_categories_valid() -> None:

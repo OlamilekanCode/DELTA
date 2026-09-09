@@ -273,11 +273,15 @@ async def compute_intraday_scores(
                 is_demo=window_is_demo, data_quality="collecting_data",
             ))
             continue
-        r, n2 = pearson_r(s_rets, c_rets, min_observations=MIN_INTRADAY_OBS)
+        r, n2, is_defined = pearson_r(s_rets, c_rets, min_observations=MIN_INTRADAY_OBS)
         results.append(IntradayScoreResult(
             symbol=ca.symbol, name=ca.name, category=ca.category,
             score=round(r, 4), observations=n2, collecting_data=False, data_ts=last_ts,
-            is_demo=window_is_demo, data_quality="ok",
+            is_demo=window_is_demo,
+            # NaN from zero-variance input (one side never moved over the
+            # window) is not a confirmed "no relationship" — never tagged
+            # "ok" alongside a 0.0 placeholder score.
+            data_quality="ok" if is_defined else "undefined_correlation",
         ))
 
     results.sort(key=lambda x: (-abs(x.score), x.symbol))

@@ -80,12 +80,16 @@ export default function MethodologyPage() {
         <ol className="ml-4 list-decimal space-y-3">
           <li>Sort prices oldest → newest</li>
           <li>
-            Convert each price series to daily log returns:
+            Align stock and crypto PRICE series by date first (inner join) — a Monday return
+            computed independently would span Friday→Monday for stocks but Sunday→Monday for
+            crypto under the same date label, so alignment must happen before returns, not after
+          </li>
+          <li>
+            Compute daily log returns on the aligned price slices:
             <div className="my-3 rounded-lg border border-white/[0.09] bg-panel p-4 font-mono text-sm text-violet-light">
               return_t = ln(price_t / price_&#123;t-1&#125;)
             </div>
           </li>
-          <li>Align stock and crypto returns by date (inner join)</li>
           <li>
             Calculate Pearson correlation <Code>r</Code> across aligned observations — the result
             is the Exposure Score, stored without any clamp or transform:

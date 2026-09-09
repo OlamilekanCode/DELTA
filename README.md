@@ -87,6 +87,7 @@ Full reference in `.env.example`. Highlights:
 | `SYNTHEX_CHAIN_ID`, `SYNTHEX_TOKEN_ADDRESS`, `ROBINHOOD_RPC_URL` | On-chain holder verification (fails closed until all are set) |
 | `SYNTHEX_DEX_ROUTER_ADDRESSES`, `SYNTHEX_DEX_POOL_ADDRESSES`, `SYNTHEX_WETH_ADDRESS` | `$SynthEx`/ETH purchase verification (fails closed until all are set) |
 | `CRON_SECRET` | Authenticate scheduled job endpoints |
+| `BFF_SHARED_SECRET` | Optional, must match on both Vercel and Render — lets rate limiting see the real end-user IP instead of Vercel's shared egress IP |
 | `NEXT_PUBLIC_API_BASE_URL` | Frontend → backend URL for public data (browser-fetched) |
 | `BACKEND_API_URL` | Server-only Vercel var → FastAPI origin (BFF pattern, never `NEXT_PUBLIC_`) |
 | `NEXT_PUBLIC_REOWN_PROJECT_ID` | Wallet connection (AppKit) |
@@ -124,6 +125,7 @@ npx wrangler deploy
 | `*/5 * * * *` | `POST /api/v1/cron/refresh-crypto-quotes` | Current crypto prices + 5-min observations |
 | `2,32 * * * *` | `POST /api/v1/cron/refresh-intraday` | 30-min candles + live Exposure Scores |
 | `0 23 * * 2,5` | `POST /api/v1/cron/refresh-history-and-scores` | History + historical scores + retention cleanup |
+| `0 4 * * *` | `POST /api/v1/cron/refresh-portfolio-catalogue` | Verified on-chain contract catalogue sync (CoinGecko, curated aliases, Robinhood, native gas tokens) |
 
 ---
 

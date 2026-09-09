@@ -446,9 +446,31 @@ function PortfolioDetail({
   const showComingSoon = tier === "tier_premium";
   const queryClient = useQueryClient();
   const [selectedStock, setSelectedStock] = useState("");
+  const { address, entitlements: walletEntitlements } = useWalletState();
 
+  // The initialStocks prop was fetched server-side using whatever session
+  // cookie existed at the time this page was first rendered — signing in
+  // as a holder afterward (client-side, no navigation) never re-runs that
+  // server fetch, so the selector would stay stuck at the free 8-stock
+  // list. Refetching client-side, keyed by is_holder, picks up the full
+  // catalogue the moment holder status is confirmed.
+  const { data: stocksData } = useQuery({
+    queryKey: ["portfolio-stock-list", walletEntitlements?.is_holder ?? false],
+    queryFn: async () => {
+      const res = await fetch("/api/assets?type=stock", { cache: "no-store" });
+      if (!res.ok) throw new Error(`Failed to load stock list: HTTP ${res.status}`);
+      return (await res.json()) as { assets: ApiAsset[] };
+    },
+    initialData: { assets: stocks },
+  });
+  const stockOptions = stocksData?.assets ?? stocks;
+
+  // Scoped by wallet address for the same reason as the entitlements
+  // query in WalletStateManager — without it, switching wallets could
+  // briefly show the PREVIOUS wallet's cached portfolio exposure the
+  // instant this component re-renders for the new one.
   const { data: exposure, error: exposureError, isLoading } = useQuery({
-    queryKey: ["portfolio-exposure", selectedStock],
+    queryKey: ["portfolio-exposure", address?.toLowerCase() ?? null, selectedStock],
     queryFn: async () => {
       const qs = selectedStock ? `?stock=${encodeURIComponent(selectedStock)}` : "";
       const res = await fetch(`/api/portfolio/exposure${qs}`, { cache: "no-store" });
@@ -464,7 +486,15 @@ function PortfolioDetail({
   const topRanked = exposure?.ranked?.[0] ?? null;
   const headlineScore = exposure?.portfolio_exposure_score ?? topRanked?.portfolio_exposure_score ?? null;
   const headlineStock = exposure?.stock ?? topRanked?.stock ?? null;
-  const hasPositions = Boolean(exposure?.assets?.length || exposure?.ranked?.length || exposure?.stocks_covered);
+  // A wallet holding only Robinhood Stock Tokens or only stablecoins has
+  // real, valued positions with nothing to correlate — assets/ranked stay
+  // empty in that case, but total_usd_value (and direct/cash holdings)
+  // are non-zero. Checking assets/ranked alone would show "no wallet
+  // positions found" for a wallet that very much has positions.
+  const hasPositions = Boolean(
+    exposure?.assets?.length || exposure?.ranked?.length || exposure?.stocks_covered ||
+    (exposure?.total_usd_value ?? 0) > 0
+  );
 
   const liveScore = exposure?.live_portfolio_exposure_score ?? null;
   const liveStatus = exposure?.stock
@@ -488,7 +518,7 @@ function PortfolioDetail({
         onRefreshed={() => queryClient.invalidateQueries({ queryKey: ["portfolio-exposure"] })}
       />
 
-      {stocks.length > 0 && (
+      {stockOptions.length > 0 && (
         <div className="mb-4">
           <label htmlFor="portfolio-stock" className="mb-1.5 block font-mono text-xs uppercase tracking-widest text-muted">
             View exposure for
@@ -500,7 +530,7 @@ function PortfolioDetail({
             className="w-full max-w-xs rounded-xl border border-white/[0.09] bg-panel2 px-3 py-2 font-mono text-sm text-text focus:border-violet focus:outline-none sm:w-auto"
           >
             <option value="">All stocks (ranked)</option>
-            {stocks.map((s) => (
+            {stockOptions.map((s) => (
               <option key={s.symbol} value={s.symbol}>
                 {s.symbol} — {s.name}
               </option>
@@ -528,9 +558,11 @@ function PortfolioDetail({
               {exposureError
                 ? "Couldn't load portfolio exposure — try again shortly."
                 : (exposure?.note ??
-                  (hasPositions
-                    ? "Signed correlation between your wallet's crypto holdings and the listed stock, weighted by portfolio share."
-                    : "No wallet positions found yet — refresh your wallet to read current on-chain holdings."))}
+                  (!hasPositions
+                    ? "No wallet positions found yet — refresh your wallet to read current on-chain holdings."
+                    : headlineScore == null
+                      ? "No crypto holdings to correlate yet — your wallet's value is in Stock Token and/or stablecoin holdings below."
+                      : "Signed correlation between your wallet's crypto holdings and the listed stock, weighted by portfolio share."))}
             </p>
             {!showDetailed && exposure?.stocks_covered != null && exposure.stocks_covered > 0 && (
               <p className="mt-2 font-mono text-[11px] text-muted/70">

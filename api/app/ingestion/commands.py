@@ -127,8 +127,13 @@ async def cmd_refresh_crypto_quotes() -> dict:
     cg = CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
 
     async with get_factory()() as db:
+        # Stablecoins are included here too — a live quote is how a depeg
+        # would actually be detected (see services/portfolio.py); without
+        # it there's nothing to check the flat $1.00 assumption against.
         result = await db.execute(
-            select(Asset).where(Asset.asset_type == "crypto", Asset.coingecko_id.is_not(None))
+            select(Asset).where(
+                Asset.asset_type.in_(["crypto", "stablecoin"]), Asset.coingecko_id.is_not(None)
+            )
         )
         crypto_assets = result.scalars().all()
         cg_ids = [a.coingecko_id for a in crypto_assets if a.coingecko_id]
@@ -510,11 +515,12 @@ async def cmd_recompute_scores() -> int:
 
 async def cmd_refresh_portfolio_catalogue() -> dict:
     """Sync the database-backed portfolio contract catalogue from CoinGecko
-    (crypto Ethereum/Base contracts), curated wrapped-token aliases, and
-    Robinhood's stock-token registry. Scheduled/background only — never
-    called from an ordinary portfolio page request. Each source is
-    independent; a failed fetch preserves whatever was already synced
-    rather than wiping the catalogue.
+    (crypto Ethereum/Base contracts), curated wrapped-token aliases,
+    Robinhood's stock-token registry, and native gas tokens (ETH on
+    Ethereum/Base). Scheduled/background only — never called from an
+    ordinary portfolio page request. Each source is independent; a failed
+    fetch preserves whatever was already synced rather than wiping the
+    catalogue.
     """
     settings = get_settings()
     from app.providers.robinhood import RobinhoodAssetProvider

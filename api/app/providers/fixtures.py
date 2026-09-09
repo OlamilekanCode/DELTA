@@ -41,6 +41,13 @@ def _derived(base: list[float], scale: float, seed: int, noise_amp: float = 0.02
     return [round(scale * (p / b0) * _noise(seed, i, noise_amp), 8) for i, p in enumerate(base)]
 
 
+def _stable(length: int, seed: int, amp: float = 0.002) -> list[float]:
+    """A near-$1.00 series with tiny bounded noise, independent of any
+    other asset's price pattern — a real stablecoin's value doesn't track
+    BTC's returns scaled down, unlike every other _derived() series here."""
+    return [round(_noise(seed, i, amp), 6) for i in range(length)]
+
+
 # Stocks
 _RAW_TSLA = _derived(_RAW_NVDA, 250.0, seed=10, noise_amp=0.04)
 _RAW_COIN = _derived(_RAW_BTC, 248.0, seed=11, noise_amp=0.055)
@@ -204,6 +211,15 @@ _RAW_BCH = _derived(_RAW_BTC, 380.0, seed=129)
 _RAW_RPL = _derived(_RAW_ETH, 15.0, seed=130)
 _RAW_ETHFI = _derived(_RAW_ETH, 1.6, seed=131)
 
+# Stablecoins — near-$1.00, tiny independent noise (see _stable's docstring
+# for why these must never be _derived() from BTC/ETH like everything
+# above). Lets demo mode exercise the same live-quote-based valuation path
+# real stablecoin quotes will use, instead of a hardcoded $1.00 the code
+# never actually checks against anything.
+_RAW_USDC = _stable(len(_RAW_BTC), seed=200)
+_RAW_USDT = _stable(len(_RAW_BTC), seed=201)
+_RAW_USDG = _stable(len(_RAW_BTC), seed=202)
+
 _SYMBOL_DATA: dict[str, list[float]] = {
     "NVDA": _RAW_NVDA,
     "TSLA": _RAW_TSLA,
@@ -325,6 +341,21 @@ _SYMBOL_DATA: dict[str, list[float]] = {
     "BCH": _RAW_BCH,
     "RPL": _RAW_RPL,
     "ETHFI": _RAW_ETHFI,
+    # USDC/USDT/USDG deliberately NOT included here — this dict backs
+    # fetch_ohlcv() (daily price HISTORY), and stablecoins must never get
+    # that (see STABLECOIN_QUOTE_DATA below and the "never get daily price
+    # history" convention in services/portfolio.py) or they'd leak into
+    # correlation scoring as a spurious, near-constant series.
+}
+
+# Quote-only fixture data for stablecoins — deliberately separate from
+# _SYMBOL_DATA (see comment above). Used only to seed/refresh AssetQuote
+# rows for live-quote-based valuation (see services/portfolio.py), never
+# daily price history or correlation scoring.
+STABLECOIN_QUOTE_DATA: dict[str, list[float]] = {
+    "USDC": _RAW_USDC,
+    "USDT": _RAW_USDT,
+    "USDG": _RAW_USDG,
 }
 
 FIXTURE_ASSETS: list[dict] = [
@@ -478,9 +509,9 @@ FIXTURE_ASSETS: list[dict] = [
     # without needing scattered special-case symbol checks. Portfolio
     # holdings of these are valued at a flat $1.00/unit and reported as cash
     # (see services/portfolio.py) — they never need daily price history.
-    {"symbol": "USDC", "name": "USD Coin",   "asset_type": "stablecoin", "category": "Stablecoin", "access": "holder", "coingecko_id": None},
-    {"symbol": "USDT", "name": "Tether",     "asset_type": "stablecoin", "category": "Stablecoin", "access": "holder", "coingecko_id": None},
-    {"symbol": "USDG", "name": "Global Dollar", "asset_type": "stablecoin", "category": "Stablecoin", "access": "holder", "coingecko_id": None},
+    {"symbol": "USDC", "name": "USD Coin",   "asset_type": "stablecoin", "category": "Stablecoin", "access": "holder", "coingecko_id": "usd-coin"},
+    {"symbol": "USDT", "name": "Tether",     "asset_type": "stablecoin", "category": "Stablecoin", "access": "holder", "coingecko_id": "tether"},
+    {"symbol": "USDG", "name": "Global Dollar", "asset_type": "stablecoin", "category": "Stablecoin", "access": "holder", "coingecko_id": "global-dollar"},
 ]
 
 
@@ -569,17 +600,20 @@ class FixtureProvider:
         return observations
 
     async def fetch_quotes(self, symbols: list[str]) -> list[QuoteRow]:
-        """Return deterministic fake current quotes for the given symbols."""
+        """Return deterministic fake current quotes for the given symbols.
+        Stablecoins are served from STABLECOIN_QUOTE_DATA (quote-only, no
+        daily history — see that dict's docstring), never _SYMBOL_DATA."""
         now = datetime.now(UTC)
         result = []
         for sym in symbols:
-            prices = _SYMBOL_DATA.get(sym.upper(), [])
+            symbol_upper = sym.upper()
+            prices = _SYMBOL_DATA.get(symbol_upper) or STABLECOIN_QUOTE_DATA.get(symbol_upper, [])
             if not prices:
                 continue
             price = float(prices[-1])
             result.append(
                 QuoteRow(
-                    symbol=sym.upper(),
+                    symbol=symbol_upper,
                     price_usd=price,
                     market_cap_usd=round(price * 18_000_000, 2),
                     volume_24h_usd=round(price * 1_500_000, 2),

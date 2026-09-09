@@ -111,8 +111,14 @@ export default function WalletStateManager({ children }: { children: React.React
   // Forces a fresh on-chain balance read (server-side rate-limited) after
   // login and every 5 minutes while authenticated and the tab is visible —
   // never on every route change or ordinary asset-page request.
+  //
+  // Scoped by wallet address: an unscoped key would let switching wallets
+  // briefly show the PREVIOUS wallet's cached tier/balance the instant the
+  // new one re-enables this query (React Query serves stale cached data
+  // immediately while revalidating) — scoping gives each wallet its own
+  // cache entry with nothing stale to flash.
   const { data: entitlements = null, isLoading: entitlementsLoading } = useQuery({
-    queryKey: ["entitlements-status"],
+    queryKey: ["entitlements-status", address?.toLowerCase() ?? null],
     queryFn: refreshEntitlements,
     enabled: session.authenticated,
     refetchInterval: session.authenticated ? 5 * 60_000 : false,

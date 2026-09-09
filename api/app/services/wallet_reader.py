@@ -80,7 +80,15 @@ async def read_balances_batched(
         decoded = decode_aggregate3_result(hex_result, expected_count=len(batch))
         for contract, (success, return_data) in zip(batch, decoded, strict=True):
             if success:
-                balances[contract.contract_address] = decode_balance_result(return_data)
+                balance = decode_balance_result(return_data)
+                if balance is not None:
+                    balances[contract.contract_address] = balance
+                else:
+                    log.warning(
+                        "Malformed balanceOf return data for %s on chain %s — "
+                        "leaving balance unknown rather than a confirmed zero",
+                        contract.contract_address, chain_id,
+                    )
             # else: leave missing — a failed per-call read (allowFailure)
             # is not a confirmed zero balance.
     return balances

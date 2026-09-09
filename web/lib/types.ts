@@ -85,6 +85,10 @@ export interface ApiExposureScore {
   score: number;
   raw_correlation: number;
   observations: number;
+  // Comma-separated flags — "undefined_correlation" means score is a 0.0
+  // placeholder (NaN from zero-variance input), never a confirmed
+  // "no relationship". Never assume absence means nothing to flag.
+  data_quality?: string | null;
 }
 
 export interface ApiExposuresResult {

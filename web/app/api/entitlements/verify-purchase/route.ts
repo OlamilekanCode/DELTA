@@ -1,4 +1,4 @@
-import { proxyToBackend } from "@/lib/bff";
+import { proxyToBackend, realClientIp } from "@/lib/bff";
 
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null);
@@ -11,5 +11,6 @@ export async function POST(request: Request) {
     requireAuth: true,
     method: "POST",
     body: { tx_hash: txHash },
+    clientIp: realClientIp(request),
   });
 }

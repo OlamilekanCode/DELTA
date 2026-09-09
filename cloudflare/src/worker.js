@@ -13,12 +13,13 @@
  */
 
 // Cron expression -> backend endpoint. Must stay in sync with the `crons`
-// list in wrangler.toml — three distinct job types, each independently
+// list in wrangler.toml — four distinct job types, each independently
 // scheduled (see cloudflare/wrangler.toml for rationale).
 const ROUTES = {
   "*/5 * * * *": "/api/v1/cron/refresh-crypto-quotes",
   "2,32 * * * *": "/api/v1/cron/refresh-intraday",
   "0 23 * * 2,5": "/api/v1/cron/refresh-history-and-scores",
+  "0 4 * * *": "/api/v1/cron/refresh-portfolio-catalogue",
 };
 
 export default {

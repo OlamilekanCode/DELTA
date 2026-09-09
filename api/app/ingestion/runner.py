@@ -16,6 +16,7 @@ from app.providers.coingecko import CoinGeckoProvider
 from app.providers.fixtures import (
     _SYMBOL_DATA,
     FIXTURE_ASSETS,
+    STABLECOIN_QUOTE_DATA,
     FixtureProvider,
     _fixture_change_pct,
 )
@@ -211,8 +212,11 @@ async def seed_fixture_data(db: AsyncSession) -> None:
         rows = await provider.fetch_ohlcv(asset.symbol, 365)
         await _upsert_prices(db, asset.id, rows, is_demo=True)
 
-        if asset.asset_type == "crypto":
-            prices = _SYMBOL_DATA.get(asset.symbol, [])
+        if asset.asset_type in ("crypto", "stablecoin"):
+            prices = (
+                _SYMBOL_DATA.get(asset.symbol)
+                or STABLECOIN_QUOTE_DATA.get(asset.symbol, [])
+            )
             if prices:
                 price = float(prices[-1])
                 await _upsert_quote(

@@ -48,6 +48,25 @@ jobs:
       run:
         working-directory: api
 
+    # Migrations only ever run against SQLite (tests) or Postgres
+    # (production) — verifying against SQLite alone can silently miss a
+    # Postgres-incompatible migration (column type, batch-mode ALTER TABLE
+    # emulation quirks, etc.) until it breaks the real deploy.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: synthex_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +82,23 @@ jobs:
 
       - name: Lint with ruff
         run: ruff check .
+
+      - name: Alembic heads (exactly one — catches a branching migration history)
+        run: |
+          heads=$(alembic heads)
+          echo "$heads"
+          count=$(echo "$heads" | grep -c "(head)")
+          if [ "$count" -ne 1 ]; then
+            echo "Expected exactly one Alembic head, found $count"
+            exit 1
+          fi
+        env:
+          DATABASE_URL: 'sqlite+aiosqlite:///./test.db'
+
+      - name: Alembic upgrade against PostgreSQL
+        run: alembic upgrade head
+        env:
+          DATABASE_URL: 'postgresql+asyncpg://postgres:postgres@localhost:5432/synthex_ci'
 
       - name: Run tests
         run: pytest tests/ -v

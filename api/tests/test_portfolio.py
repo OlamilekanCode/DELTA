@@ -217,6 +217,55 @@ async def test_compute_portfolio_exposure_weights_sum_to_one(db: AsyncSession) -
 
 
 @pytest.mark.asyncio
+async def test_compute_portfolio_exposure_aggregates_same_asset_across_chains(db: AsyncSession) -> None:
+    """The same asset held on two different chains must show as ONE
+    combined holding, not two smaller, confusing line items."""
+    await _seed_quote(db, "ETH", 4_000.0)
+    await _seed_portfolio_contract(db, 1, "0x" + "e1" * 20, 18, "ETH")
+    await _seed_portfolio_contract(db, 8453, "0x" + "e2" * 20, 18, "ETH")
+    now = datetime.now(UTC)
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=1, contract_address="0x" + "e1" * 20,
+        asset_id=(await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one().id,
+        quantity_raw=str(int(10 * 10**18)), decimals=18, block_number=1, updated_at=now,
+    ))
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=8453, contract_address="0x" + "e2" * 20,
+        asset_id=(await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one().id,
+        quantity_raw=str(int(15 * 10**18)), decimals=18, block_number=1, updated_at=now,
+    ))
+    await db.commit()
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert len(result["assets"]) == 1
+    assert result["assets"][0]["symbol"] == "ETH"
+    assert result["assets"][0]["weight"] == pytest.approx(1.0, rel=1e-3)
+    assert result["total_usd_value"] == pytest.approx(25 * 4_000.0, rel=1e-3)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_excludes_deactivated_contract_position(db: AsyncSession) -> None:
+    """A cached position for a contract that's since been deactivated by a
+    catalogue sync must stop contributing value until a fresh refresh."""
+    await _seed_quote(db, "ETH", 4_000.0)
+    contract = await _seed_portfolio_contract(db, 8453, "0x" + "e3" * 20, 18, "ETH")
+    contract.active = False
+    await db.commit()
+    now = datetime.now(UTC)
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=8453, contract_address="0x" + "e3" * 20,
+        asset_id=(await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one().id,
+        quantity_raw=str(int(10 * 10**18)), decimals=18, block_number=1, updated_at=now,
+    ))
+    await db.commit()
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["portfolio_exposure_score"] is None
+    assert result["assets"] == []
+    assert any(e.get("reason") == "contract_deactivated" for e in result["excluded"])
+
+
+@pytest.mark.asyncio
 async def test_compute_portfolio_exposure_signed_weighted_score(db: AsyncSession) -> None:
     await _seed_quote(db, "BTC", 100_000.0)
     await _seed_quote(db, "ETH", 4_000.0)
@@ -476,12 +525,42 @@ async def test_compute_portfolio_exposure_stablecoin_treated_as_cash(db: AsyncSe
     await _seed_position(db, "BTC", 1.0)
     await _seed_stablecoin_position(db, "USDC", 500.0)
 
+    # The db fixture seeds a real (near-$1.00, tiny-noise) demo quote for
+    # USDC now — see services/portfolio.py's stablecoin valuation, which
+    # uses the real quote when present rather than always assuming an
+    # exact peg. rel=1e-2 accommodates that fixture noise; the point of
+    # this test is "valued as cash, not correlation-weighted", not exact-
+    # to-the-penny equality.
     result = await compute_portfolio_exposure(db, WALLET)
-    assert result["cash_usd"] == pytest.approx(500.0, rel=1e-6)
-    assert result["total_usd_value"] == pytest.approx(100_500.0, rel=1e-6)
+    assert result["cash_usd"] == pytest.approx(500.0, rel=1e-2)
+    assert result["total_usd_value"] == pytest.approx(100_500.0, rel=1e-2)
     assert any(h["symbol"] == "USDC" for h in result["cash_holdings"])
     # Stablecoins never enter the correlation weight list.
     assert not any(a["symbol"] == "USDC" for a in result["assets"])
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_stablecoin_depeg_reflected(db: AsyncSession) -> None:
+    """A stablecoin's real stored quote, when one exists, must be used
+    instead of always assuming a perfect $1.00 peg — a depeg must actually
+    show up in the wallet's valued total."""
+    await _seed_quote(db, "USDC", 0.85)  # simulated depeg
+    await _seed_stablecoin_position(db, "USDC", 500.0)
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["cash_usd"] == pytest.approx(500.0 * 0.85, rel=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_compute_portfolio_exposure_stablecoin_ignores_corrupt_quote(db: AsyncSession) -> None:
+    """An implausible stored quote (e.g. a misplaced decimal, or a quote
+    keyed to the wrong asset) must fall back to the flat $1.00 default
+    rather than propagate an obviously-wrong valuation."""
+    await _seed_quote(db, "USDC", 850.0)  # implausible for a stablecoin
+    await _seed_stablecoin_position(db, "USDC", 500.0)
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["cash_usd"] == pytest.approx(500.0, rel=1e-6)
 
 
 @pytest.mark.asyncio
@@ -720,6 +799,47 @@ async def test_refresh_wallet_positions_serves_cache_within_30s(db: AsyncSession
     assert len(second.positions) == 1
     assert second.positions[0].quantity_raw == str(5 * 10**18)  # still the first mock's value
 
+
+@pytest.mark.asyncio
+async def test_refresh_wallet_positions_not_masked_by_one_healthy_chain(db: AsyncSession, monkeypatch) -> None:
+    """The 30-second refresh floor uses the OLDEST cached position's
+    timestamp, not the newest — a wallet with one chain refreshing
+    normally must not have that chain's fresh timestamp mask a DIFFERENT
+    chain's old, never-successfully-refreshed position from ever being
+    retried."""
+    import app.services.portfolio as portfolio_module
+
+    await _seed_portfolio_contract(db, 1, NATIVE, 18, "ETH", contract_type="native")
+    await _seed_portfolio_contract(db, 8453, NATIVE, 18, "ETH", contract_type="native")
+
+    from app.config import Settings
+    settings = Settings(portfolio_chain_ids="1,8453", database_url="sqlite+aiosqlite:///./test.db")
+    monkeypatch.setattr(portfolio_module, "get_settings", lambda: settings)
+
+    # Chain 1's position was refreshed moments ago (fresh). Chain 8453's
+    # position has been stale for hours (as if it's been failing every
+    # attempt). Under the old MAX-based logic, chain 1's fresh timestamp
+    # alone would mask this whole wallet as "recently refreshed" and skip
+    # the next call entirely — chain 8453 would never get retried.
+    eth_asset = (await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one()
+    now = datetime.now(UTC)
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=1, contract_address=NATIVE,
+        asset_id=eth_asset.id, quantity_raw="0", decimals=18, block_number=1,
+        updated_at=now - timedelta(seconds=5),
+    ))
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=8453, contract_address=NATIVE,
+        asset_id=eth_asset.id, quantity_raw="0", decimals=18, block_number=1,
+        updated_at=now - timedelta(hours=2),
+    ))
+    await db.commit()
+
+    fresh_mock = MockRpcProvider(chain_id=1, block_number=1, native_balances={WALLET.lower(): 3 * 10**18})
+    stale_chain_mock = MockRpcProvider(chain_id=8453, block_number=1, native_balances={WALLET.lower(): 1 * 10**18})
+    result = await refresh_wallet_positions(db, WALLET, rpc_by_chain={1: fresh_mock, 8453: stale_chain_mock})
+    assert result.chains_attempted == 2  # not skipped — chain 8453's staleness let the refresh through
+
     row = (await db.execute(
         select(CachedWalletPosition).where(CachedWalletPosition.wallet_address == WALLET.lower())
     )).scalar_one()
@@ -829,6 +949,30 @@ async def test_detailed_tier_receives_full_fields_via_api(client, db: AsyncSessi
     assert "assets" in body
     assert "excluded" in body
     assert "category_exposure" in body
+    # live_stocks_covered/live_portfolio_exposure_score must be present at
+    # every tier (not only inside the summary shape) — the "All stocks"
+    # live view previously always read as "still collecting" at
+    # detailed/premium because these keys only existed in _summary_shape's
+    # output.
+    assert "live_stocks_covered" in body
+    assert "live_portfolio_exposure_score" in body
+
+
+@pytest.mark.asyncio
+async def test_all_stocks_live_ranked_present_at_detailed_tier_when_ready(
+    client, db: AsyncSession, monkeypatch
+) -> None:
+    await _seed_quote(db, "BTC", 100_000.0)
+    headers, wallet = await _authenticated_holder(client, db, monkeypatch, tier="detailed", cumulative_usd_cents=25_000)
+    await _seed_position_for(db, wallet, "BTC", 1.0)
+    await _seed_intraday_score(db, "NVDA", "BTC", 0.6)
+
+    r = await client.get("/api/v1/portfolio/exposure", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["live_stocks_covered"] == 1
+    assert body["live_portfolio_exposure_score"] == pytest.approx(0.6, rel=1e-3)
+    assert {row["stock"] for row in body["live_ranked"]} == {"NVDA"}
 
 
 @pytest.mark.asyncio

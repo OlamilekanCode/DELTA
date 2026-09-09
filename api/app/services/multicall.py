@@ -146,9 +146,14 @@ def decode_aggregate3_result(hex_result: str, expected_count: int) -> list[tuple
     return results
 
 
-def decode_balance_result(return_data: bytes) -> int:
+def decode_balance_result(return_data: bytes) -> int | None:
+    """Returns None (never a confirmed 0) when `return_data` is shorter than
+    the expected single uint256 word — a call reporting `success=True` but
+    returning malformed/truncated data is not the same as a real, on-chain
+    zero balance, and must never overwrite a previously-cached balance with
+    one."""
     if len(return_data) < 32:
-        return 0
+        return None
     return int.from_bytes(return_data[:32], "big")
 
 

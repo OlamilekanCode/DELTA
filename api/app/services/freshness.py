@@ -90,7 +90,18 @@ def intraday_status(data_ts: datetime | None, now: datetime | None = None) -> st
     now = _aware(now or datetime.now(UTC))
     status = get_market_status(now)
     if not status.is_open:
-        return "market_closed" if data_ts is not None else "collecting_data"
+        if data_ts is None:
+            return "collecting_data"
+        # "market_closed" means the last score is current, just frozen —
+        # it must NOT accept a score of any age (a broken intraday job
+        # from weeks ago would otherwise still read as "current"). The
+        # final closing calculation for the most recently completed
+        # session may still be processing shortly after close, so a score
+        # reflecting the PRIOR session is tolerated during that grace
+        # window; anything older than that is genuinely stale.
+        data_date = _aware(data_ts).date()
+        floor_date = previous_trading_session(status.last_close.date())
+        return "stale" if data_date < floor_date else "market_closed"
     if data_ts is None:
         return "collecting_data"
     if status.current_bucket is None:

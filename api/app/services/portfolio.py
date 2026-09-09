@@ -198,8 +198,16 @@ async def refresh_wallet_positions(
     # A refresh here can fan out into many RPC calls (every configured
     # chain x contract) — floor how often an authenticated user can trigger
     # that fan-out by serving the still-fresh cached rows instead.
+    #
+    # Uses the OLDEST position's timestamp, not the newest — the same
+    # convention as data_ts/positions_stale below. A wallet with one
+    # chain refreshing normally and another perpetually failing would,
+    # under MAX, have its "last refresh" timestamp continuously renewed
+    # by the healthy chain alone, permanently skipping any retry of the
+    # failing one. MIN means any stale position is enough to let a new
+    # attempt through.
     last_refresh_result = await db.execute(
-        select(func.max(CachedWalletPosition.updated_at)).where(
+        select(func.min(CachedWalletPosition.updated_at)).where(
             CachedWalletPosition.wallet_address == wallet_lower
         )
     )
@@ -427,12 +435,32 @@ async def _classify_positions(
         if asset is None:
             continue
         contract = contracts_by_key.get((p.chain_id, p.contract_address.lower()))
+        if contract is not None and not contract.active:
+            # The contract was deactivated by a later catalogue sync
+            # (removed/delisted upstream, or reassigned to another asset —
+            # see services/portfolio_catalog.py's _deactivate_stale_rows).
+            # This cached position predates that and must stop
+            # contributing value until a fresh refresh confirms current
+            # holdings against the now-current catalogue.
+            excluded.append({"symbol": asset.symbol, "reason": "contract_deactivated"})
+            continue
         qty = Decimal(p.quantity_raw) / Decimal(10 ** p.decimals)
 
         if asset.asset_type == "stablecoin":
             if qty <= 0:
                 continue
-            cash.append((asset, qty))  # $1.00/unit — no AssetQuote lookup needed
+            # Uses the real stored quote when one exists, so a depeg is
+            # actually reflected instead of always assuming a perfect
+            # $1.00 peg. A sanity ceiling (never a floor — a genuine severe
+            # depeg is exactly what this must show) guards only against
+            # obviously-corrupt data, e.g. a misplaced decimal or a quote
+            # somehow keyed to the wrong asset.
+            price = 1.0
+            stable_quote_result = await db.execute(select(AssetQuote).where(AssetQuote.asset_id == p.asset_id))
+            stable_quote_row = stable_quote_result.scalar_one_or_none()
+            if stable_quote_row is not None and 0 < stable_quote_row.price_usd <= 10:
+                price = stable_quote_row.price_usd
+            cash.append((asset, qty * Decimal(str(price))))
             continue
 
         if contract is not None and contract.contract_type == "robinhood_stock":
@@ -463,6 +491,42 @@ async def _classify_positions(
         synthetic.append((asset, usd_value, contract))
 
     return synthetic, direct, cash, excluded, oldest_quote_ts
+
+
+def _aggregate_valued_by_asset(
+    entries: list[tuple[Asset, Decimal, PortfolioContract | None]],
+) -> list[tuple[Asset, Decimal, PortfolioContract | None]]:
+    """Sums usd_value for entries sharing the same asset — a wallet holding
+    the same asset across multiple chains/contracts (e.g. ETH on both
+    Ethereum and Base) must show as one combined holding, not one smaller,
+    confusing line item per chain. The correlation-weighted score itself
+    was never distorted by this (splitting one weight into several that
+    still sum to the same total, each multiplied by the same per-asset
+    score, is mathematically identical) — this only fixes the per-asset
+    display lists (assets/direct_holdings/cash_holdings)."""
+    totals: dict[int, Decimal] = {}
+    asset_by_id: dict[int, Asset] = {}
+    contract_by_id: dict[int, PortfolioContract | None] = {}
+    order: list[int] = []
+    for asset, usd_value, contract in entries:
+        if asset.id not in totals:
+            order.append(asset.id)
+            asset_by_id[asset.id] = asset
+            contract_by_id[asset.id] = contract
+        totals[asset.id] = totals.get(asset.id, Decimal(0)) + usd_value
+    return [(asset_by_id[aid], totals[aid], contract_by_id[aid]) for aid in order]
+
+
+def _aggregate_cash_by_asset(entries: list[tuple[Asset, Decimal]]) -> list[tuple[Asset, Decimal]]:
+    totals: dict[int, Decimal] = {}
+    asset_by_id: dict[int, Asset] = {}
+    order: list[int] = []
+    for asset, qty in entries:
+        if asset.id not in totals:
+            order.append(asset.id)
+            asset_by_id[asset.id] = asset
+        totals[asset.id] = totals.get(asset.id, Decimal(0)) + qty
+    return [(asset_by_id[aid], totals[aid]) for aid in order]
 
 
 async def compute_portfolio_exposure(
@@ -510,6 +574,14 @@ async def compute_portfolio_exposure(
 
     synthetic, direct, cash, excluded, oldest_quote_ts = await _classify_positions(db, positions)
     quotes_stale = oldest_quote_ts is None or (datetime.now(UTC) - oldest_quote_ts) > QUOTES_STALE_AFTER
+
+    # Combine multi-chain holdings of the same asset into one line item
+    # before building any weight/holdings breakdown — see
+    # _aggregate_valued_by_asset's docstring for why the score itself was
+    # never affected by this, only the display lists were.
+    synthetic = _aggregate_valued_by_asset(synthetic)
+    direct = _aggregate_valued_by_asset(direct)
+    cash = _aggregate_cash_by_asset(cash)
 
     synthetic_usd = sum((v for _, v, _ in synthetic), Decimal(0))
     direct_usd = sum((v for _, v, _ in direct), Decimal(0))
@@ -618,9 +690,18 @@ async def compute_portfolio_exposure(
         reverse=True,
     )
 
+    # Computed here (not only inside shape_portfolio_response's summary
+    # branch) so detailed/premium tiers — which pass the raw dict through
+    # unchanged — see the same averaged live figure and coverage count as
+    # summary tier, instead of only ever seeing the per-stock live_ranked
+    # list with no aggregate to read.
+    live_scores = [r["portfolio_exposure_score"] for r in live_ranked]
+
     return {
         "ranked": ranked,
         "live_ranked": live_ranked,
+        "live_portfolio_exposure_score": round(sum(live_scores) / len(live_scores), 4) if live_scores else None,
+        "live_stocks_covered": len(live_ranked),
         "assets": [{"symbol": asset.symbol, "weight": float(weight)} for asset, weight in weights],
         "category_exposure": category_exposure,
         "excluded": excluded,

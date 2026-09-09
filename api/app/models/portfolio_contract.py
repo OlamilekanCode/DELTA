@@ -18,16 +18,23 @@ class PortfolioContract(Base):
     resolve a contract.
 
     `verified` gates whether the batch wallet reader will actually query a
-    row: CoinGecko- and Robinhood-sourced rows are marked verified
-    automatically (matched against each provider's own official platform/
-    registry data for an asset already in our tracked catalogue — the same
-    trust level already extended to those providers elsewhere in this
-    codebase). Curated wrapped-token aliases (source="curated_alias") are
-    NOT sourced from a live provider response — they default to
-    verified=False and must be flipped on by a human after independently
-    confirming the address against a block explorer, exactly like the
-    existing ROUTER_ADAPTERS/PORTFOLIO_ASSET_CONTRACTS "confirmed, never
-    guessed" convention.
+    row. Every source defaults to verified=False and requires a human to
+    flip it on after independently confirming the contract against a block
+    explorer — exactly the existing ROUTER_ADAPTERS "confirmed, never
+    guessed" convention:
+
+    - CoinGecko's coins/list endpoint has no per-platform decimals field,
+      so `decimals` there is an assumed default, not a confirmed value —
+      trusting it blind risks misvaluing a holding by orders of magnitude.
+    - Robinhood's asset registry schema is explicitly best-effort/unconfirmed
+      (see providers/robinhood.py's module docstring).
+    - Curated wrapped-token aliases are hardcoded from memory, not a live
+      provider response.
+
+    The one exception is `contract_type="native"` rows (the chain's own gas
+    token, e.g. ETH on Ethereum/Base) — decimals=18 there is an EVM
+    protocol constant, not app-specific guessed data, so those are marked
+    verified=True at sync time.
     """
 
     __tablename__ = "portfolio_asset_contracts"
