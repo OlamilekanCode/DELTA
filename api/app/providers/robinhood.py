@@ -94,8 +94,12 @@ class RobinhoodAssetProvider:
         body = r.json()
         raw_items = body.get("results", body) if isinstance(body, dict) else body
         if not isinstance(raw_items, list):
-            log.warning("Robinhood asset registry response was not a list — skipping this sync")
-            return []
+            # Must raise, never return [] — the sync layer treats an empty
+            # list as "confirmed: nothing exists upstream anymore" and
+            # deactivates every previously-synced row from this source. An
+            # unparseable response is not that; it must be indistinguishable
+            # from any other fetch failure (preserve existing rows).
+            raise ProviderError(0, "Robinhood asset registry response was not a list")
 
         tokens: list[RobinhoodStockToken] = []
         for item in raw_items:

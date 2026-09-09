@@ -422,7 +422,10 @@ async def _classify_positions(
                 sub, (DailyPrice.asset_id == sub.c.asset_id) & (DailyPrice.date == sub.c.max_date)
             )
         )
-        latest_stock_prices = {row.asset_id: row.close for row in price_result.scalars().all()}
+        latest_stock_prices = {
+            row.asset_id: row.adj_close if row.adj_close is not None and row.adj_close > 0 else row.close
+            for row in price_result.scalars().all()
+        }
 
     for p in positions:
         if p.asset_id is None:
@@ -435,12 +438,16 @@ async def _classify_positions(
         if asset is None:
             continue
         contract = contracts_by_key.get((p.chain_id, p.contract_address.lower()))
-        if contract is not None and not contract.active:
-            # The contract was deactivated by a later catalogue sync
-            # (removed/delisted upstream, or reassigned to another asset —
-            # see services/portfolio_catalog.py's _deactivate_stale_rows).
-            # This cached position predates that and must stop
-            # contributing value until a fresh refresh confirms current
+        if contract is None or not contract.active or not contract.verified:
+            # refresh_wallet_positions only ever creates a position from a
+            # contract that WAS verified+active at fetch time (see
+            # get_verified_contracts_for_chain) — so a position whose
+            # contract is now missing, deactivated, or unverified means
+            # that state changed AFTER the fact (removed/delisted upstream,
+            # reassigned to another asset, or a human revoked its
+            # verification — see services/portfolio_catalog.py's
+            # _deactivate_stale_rows and _upsert_contract). This cached
+            # position predates that change and must stop contributing
             # holdings against the now-current catalogue.
             excluded.append({"symbol": asset.symbol, "reason": "contract_deactivated"})
             continue

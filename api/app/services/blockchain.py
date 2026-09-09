@@ -44,8 +44,8 @@ class BlockData:
 class RpcProvider(Protocol):
     async def get_chain_id(self) -> int: ...
     async def get_block_number(self) -> int: ...
-    async def get_erc20_balance(self, token_address: str, wallet_address: str) -> int: ...
-    async def get_native_balance(self, wallet_address: str) -> int: ...
+    async def get_erc20_balance(self, token_address: str, wallet_address: str) -> int | None: ...
+    async def get_native_balance(self, wallet_address: str) -> int | None: ...
     async def get_transaction(self, tx_hash: str) -> TransactionData | None: ...
     async def get_transaction_receipt(self, tx_hash: str) -> TransactionReceipt | None: ...
     async def get_block(self, block_number: int) -> BlockData | None: ...
@@ -66,6 +66,17 @@ def _pad_address(address: str) -> str:
 def _hex_to_int(value: str | None) -> int:
     if not value or value == "0x":
         return 0
+    return int(value, 16)
+
+
+def _hex_to_balance(value: str | None) -> int | None:
+    """Like _hex_to_int, but for balance reads specifically: None/"0x" here
+    means the RPC gave back nothing usable, not a confirmed zero balance —
+    the caller must never treat it as one (see wallet_reader.py's fallback
+    path, and services/multicall.py's decode_balance_result for the same
+    fix on the batched path)."""
+    if not value or value == "0x":
+        return None
     return int(value, 16)
 
 
@@ -96,14 +107,14 @@ class JsonRpcProvider:
         result = await self._call("eth_blockNumber", [])
         return _hex_to_int(result)
 
-    async def get_erc20_balance(self, token_address: str, wallet_address: str) -> int:
+    async def get_erc20_balance(self, token_address: str, wallet_address: str) -> int | None:
         data = _ERC20_BALANCE_OF_SELECTOR + _pad_address(wallet_address)
         result = await self._call("eth_call", [{"to": token_address, "data": data}, "latest"])
-        return _hex_to_int(result)
+        return _hex_to_balance(result)
 
-    async def get_native_balance(self, wallet_address: str) -> int:
+    async def get_native_balance(self, wallet_address: str) -> int | None:
         result = await self._call("eth_getBalance", [wallet_address, "latest"])
-        return _hex_to_int(result)
+        return _hex_to_balance(result)
 
     async def get_transaction(self, tx_hash: str) -> TransactionData | None:
         result = await self._call("eth_getTransactionByHash", [tx_hash])

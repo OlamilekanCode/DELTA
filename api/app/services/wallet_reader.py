@@ -46,8 +46,11 @@ async def read_balances_batched(
     if native_contracts:
         try:
             native_balance = await rpc.get_native_balance(wallet_address)
-            for c in native_contracts:
-                balances[c.contract_address] = native_balance
+            if native_balance is not None:
+                for c in native_contracts:
+                    balances[c.contract_address] = native_balance
+            else:
+                log.warning("Malformed native balance response for chain %s — leaving unknown", chain_id)
         except Exception:
             log.exception("Native balance read failed for chain %s", chain_id)
 
@@ -62,7 +65,14 @@ async def read_balances_batched(
         )
         for c in erc20_contracts:
             try:
-                balances[c.contract_address] = await rpc.get_erc20_balance(c.contract_address, wallet_address)
+                balance = await rpc.get_erc20_balance(c.contract_address, wallet_address)
+                if balance is not None:
+                    balances[c.contract_address] = balance
+                else:
+                    log.warning(
+                        "Malformed balanceOf response for %s on chain %s — leaving unknown",
+                        c.contract_address, chain_id,
+                    )
             except Exception:
                 log.exception("Balance read failed for %s on chain %s", c.contract_address, chain_id)
         return balances

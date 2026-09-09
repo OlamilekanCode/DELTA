@@ -244,7 +244,12 @@ async def test_cmd_refresh_crypto_quotes_persists_observations(db: AsyncSession,
     settings = _live_settings()
     monkeypatch.setattr(commands_module, "get_settings", lambda: settings)
 
-    crypto_result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
+    # Stablecoins are included too — cmd_refresh_crypto_quotes now fetches
+    # live quotes for them as well, so a real depeg can be detected (see
+    # services/portfolio.py) instead of always assuming a $1.00 peg.
+    crypto_result = await db.execute(
+        select(Asset).where(Asset.asset_type.in_(["crypto", "stablecoin"]), Asset.coingecko_id.is_not(None))
+    )
     crypto_assets = crypto_result.scalars().all()
 
     httpx_mock.add_response(

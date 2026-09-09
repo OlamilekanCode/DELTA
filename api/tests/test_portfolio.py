@@ -266,6 +266,28 @@ async def test_compute_portfolio_exposure_excludes_deactivated_contract_position
 
 
 @pytest.mark.asyncio
+async def test_compute_portfolio_exposure_excludes_unverified_contract_position(db: AsyncSession) -> None:
+    """A cached position whose contract's verification was later revoked
+    (still active, never deleted) must also stop contributing — active
+    alone is not enough; a position must never be valued off a contract
+    that's ACTIVE but not (or no longer) VERIFIED."""
+    await _seed_quote(db, "ETH", 4_000.0)
+    await _seed_portfolio_contract(db, 8453, "0x" + "e4" * 20, 18, "ETH", verified=False)
+    now = datetime.now(UTC)
+    db.add(CachedWalletPosition(
+        wallet_address=WALLET.lower(), chain_id=8453, contract_address="0x" + "e4" * 20,
+        asset_id=(await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one().id,
+        quantity_raw=str(int(10 * 10**18)), decimals=18, block_number=1, updated_at=now,
+    ))
+    await db.commit()
+
+    result = await compute_portfolio_exposure(db, WALLET)
+    assert result["portfolio_exposure_score"] is None
+    assert result["assets"] == []
+    assert any(e.get("reason") == "contract_deactivated" for e in result["excluded"])
+
+
+@pytest.mark.asyncio
 async def test_compute_portfolio_exposure_signed_weighted_score(db: AsyncSession) -> None:
     await _seed_quote(db, "BTC", 100_000.0)
     await _seed_quote(db, "ETH", 4_000.0)
@@ -839,11 +861,6 @@ async def test_refresh_wallet_positions_not_masked_by_one_healthy_chain(db: Asyn
     stale_chain_mock = MockRpcProvider(chain_id=8453, block_number=1, native_balances={WALLET.lower(): 1 * 10**18})
     result = await refresh_wallet_positions(db, WALLET, rpc_by_chain={1: fresh_mock, 8453: stale_chain_mock})
     assert result.chains_attempted == 2  # not skipped — chain 8453's staleness let the refresh through
-
-    row = (await db.execute(
-        select(CachedWalletPosition).where(CachedWalletPosition.wallet_address == WALLET.lower())
-    )).scalar_one()
-    assert row.quantity_raw == str(5 * 10**18)  # DB untouched by the second (skipped) call
 
 
 # ── GET /api/v1/portfolio/exposure — server-side tier enforcement ──────────

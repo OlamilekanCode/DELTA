@@ -145,6 +145,19 @@ async def _upsert_contract(
                 contract_address, chain_id, existing.asset_id, asset_id,
             )
             return False
+        if existing.verified and not verified:
+            # A human already confirmed this row's asset/decimals/type/
+            # source (and, for stock tokens, multiplier) against a block
+            # explorer. A LATER sync pass that itself can't confirm those
+            # values (verified=False — e.g. CoinGecko's guessed decimals,
+            # or Robinhood's best-effort schema) must never silently
+            # overwrite them: decimals=6 confirmed today must not become
+            # decimals=18 tomorrow just because CoinGecko re-resolved the
+            # same address. Only `active` (still-present-upstream tracking)
+            # is safe to keep syncing here.
+            existing.active = active
+            existing.updated_at = now
+            return True
         existing.asset_id = asset_id
         existing.contract_type = contract_type
         existing.decimals = decimals
@@ -225,9 +238,14 @@ async def sync_crypto_contracts_from_coingecko(db: AsyncSession, cg: CoinGeckoPr
                 # docstring.
                 source="coingecko", verified=False,
             )
+            # Marked touched regardless of whether the write actually
+            # happened — the address WAS present in this run's upstream
+            # data, so it must never be deactivated by reconciliation just
+            # because _upsert_contract refused to touch a protected
+            # verified/reassignment-conflict row (see _upsert_contract).
+            touched.add((chain_id, address.lower()))
             if written:
                 counts["contracts_written"] += 1
-                touched.add((chain_id, address.lower()))
             matched_this_coin = True
         if matched_this_coin:
             counts["matched"] += 1
@@ -290,10 +308,12 @@ async def sync_robinhood_stock_tokens(db: AsyncSession, rh: RobinhoodAssetProvid
             source="robinhood", verified=False, active=token.active,
             current_multiplier=token.current_multiplier,
         )
+        # Touched regardless of write outcome — see the matching comment
+        # in sync_crypto_contracts_from_coingecko above.
+        touched.add((token.chain_id, token.contract_address.lower()))
+        counts["matched"] += 1
         if written:
-            counts["matched"] += 1
             counts["contracts_written"] += 1
-            touched.add((token.chain_id, token.contract_address.lower()))
 
     counts["deactivated"] = await _deactivate_stale_rows(db, "robinhood", touched)
     await db.commit()

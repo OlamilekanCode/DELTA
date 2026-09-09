@@ -154,7 +154,11 @@ export default function WalletStateManager({ children }: { children: React.React
       });
       if (!verifyRes.ok) {
         const body = await verifyRes.json().catch(() => ({}));
-        throw new Error(body.error ?? "Sign-in verification failed");
+        // FastAPI's HTTPException serializes as {"detail": "..."}, not
+        // {"error": "..."} — reading body.error always missed the real
+        // SIWE error code (expired_nonce, invalid_signature, etc.) and
+        // silently fell back to the generic message every time.
+        throw new Error(body.detail ?? body.error ?? "Sign-in verification failed");
       }
       await session.refresh();
     } catch (err) {

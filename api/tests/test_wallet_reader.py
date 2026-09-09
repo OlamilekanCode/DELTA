@@ -30,6 +30,26 @@ def _contract(chain_id: int, address: str, contract_type: str = "erc20") -> Port
     )
 
 
+class _MalformedRpc:
+    """A stub RpcProvider whose balance calls return None (malformed/empty
+    RPC response), as JsonRpcProvider now does — never a confirmed zero."""
+
+    def __init__(self, chain_id: int) -> None:
+        self.chain_id = chain_id
+
+    async def get_chain_id(self) -> int:
+        return self.chain_id
+
+    async def get_block_number(self) -> int:
+        return 1
+
+    async def get_native_balance(self, wallet_address: str) -> int | None:
+        return None
+
+    async def get_erc20_balance(self, token_address: str, wallet_address: str) -> int | None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_native_balance_is_one_direct_call_not_multicall() -> None:
     mock = MockRpcProvider(chain_id=8453, native_balances={_WALLET.lower(): 42})
@@ -93,6 +113,26 @@ async def test_missing_balance_result_is_absent_not_zero() -> None:
     balances = await read_balances_batched(mock, 8453, _WALLET, contracts)
     assert balances[token_a] == 100
     assert token_unknown not in balances
+
+
+@pytest.mark.asyncio
+async def test_malformed_native_balance_response_leaves_balance_unknown() -> None:
+    rpc = _MalformedRpc(chain_id=4663)
+    contracts = [_contract(4663, NATIVE, "native")]
+    balances = await read_balances_batched(rpc, 4663, _WALLET, contracts)
+    assert NATIVE not in balances
+
+
+@pytest.mark.asyncio
+async def test_malformed_erc20_fallback_response_leaves_balance_unknown() -> None:
+    """Robinhood Chain (or any chain with no confirmed Multicall3 address)
+    uses the per-token eth_call fallback — a malformed response there must
+    never become a confirmed zero either."""
+    token_a = "0x" + "11" * 20
+    rpc = _MalformedRpc(chain_id=4663)
+    contracts = [_contract(4663, token_a)]
+    balances = await read_balances_batched(rpc, 4663, _WALLET, contracts)
+    assert token_a not in balances
 
 
 @pytest.mark.asyncio

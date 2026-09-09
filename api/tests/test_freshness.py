@@ -66,6 +66,21 @@ def test_intraday_status_market_closed_recent_score_is_current() -> None:
     assert intraday_status(status.last_close, now=now) == "market_closed"
 
 
+def test_intraday_status_market_closed_prior_session_stale_after_grace_elapses() -> None:
+    """The PRIOR session must only be tolerated for a short grace window
+    right after the most recent close — not for the entire time the
+    market happens to stay closed afterward. A score from the session
+    BEFORE last_close, checked well after that grace has elapsed, must
+    read as stale even though the market is still closed."""
+    now = datetime.fromisoformat("2026-09-12T15:00:00+00:00")  # Saturday
+    status = get_market_status(now)
+    from app.services.market_calendar import previous_trading_session
+    prior_session_close = get_market_status(
+        datetime.combine(previous_trading_session(status.last_close.date()), datetime.min.time(), tzinfo=UTC)
+    ).last_close
+    assert intraday_status(prior_session_close, now=now) == "stale"
+
+
 def test_intraday_status_market_closed_weeks_old_score_is_stale() -> None:
     """A "market_closed" score must never be accepted regardless of age —
     a broken intraday job from weeks ago must read as stale, not as

@@ -24,6 +24,22 @@ async def test_graph_live_ready(client: AsyncClient, db: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_graph_live_ready_with_threshold_above_every_score_is_not_collecting_data(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Ready pairs that all happen to score below the chosen min_score
+    threshold must report status="ready" with 0 edges — never
+    "collecting_data", which would incorrectly imply the data doesn't
+    exist yet."""
+    await seed_fixture_intraday_data(db)
+    r = await client.get("/api/v1/graphs/NVDA?interval=live&min_score=0.999")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ready"
+    assert body["edges"] == []
+
+
+@pytest.mark.asyncio
 async def test_graph_live_collecting_data_when_no_intraday_scores(client: AsyncClient) -> None:
     r = await client.get("/api/v1/graphs/NVDA?interval=live")
     assert r.status_code == 200

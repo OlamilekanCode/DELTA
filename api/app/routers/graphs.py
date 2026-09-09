@@ -96,9 +96,16 @@ async def _get_live_graph(db: AsyncSession, stock: Asset, ctx: AccessContext, mi
     stored_all = stored_result.scalars().all()
 
     market_status = get_market_status()
-    ready_rows = [s for s in stored_all if s.data_quality == "ok" and abs(s.score) >= min_score]
+    # Readiness must depend only on data_quality — a stock with plenty of
+    # ready pairs that simply all score below the user's chosen threshold
+    # is a normal "0 edges at this threshold" result (same as the
+    # historical graph), never "collecting_data". Conflating the two
+    # previously made every ready pair invisible the moment a threshold
+    # filtered all of them out.
+    all_ready_rows = [s for s in stored_all if s.data_quality == "ok"]
+    ready_rows = [s for s in all_ready_rows if abs(s.score) >= min_score]
 
-    if not ready_rows:
+    if not all_ready_rows:
         if stored_all:
             current_count = max(s.observations for s in stored_all)
             is_demo = any(s.is_demo for s in stored_all)
