@@ -162,6 +162,51 @@ async def test_cmd_refresh_intraday_excludes_in_progress_bucket(db: AsyncSession
 
 
 @pytest.mark.asyncio
+async def test_cmd_refresh_intraday_builds_crypto_candles_while_market_closed(
+    db: AsyncSession, monkeypatch, httpx_mock
+) -> None:
+    """Crypto trades continuously — candle building must never stop just
+    because the US stock market is closed. Only the Marketstack stock fetch
+    and live score recomputation should pause (no httpx_mock response is
+    registered here at all, so an attempted stock fetch would fail loudly
+    rather than silently passing)."""
+    settings = _live_settings()
+    monkeypatch.setattr(commands_module, "get_settings", lambda: settings)
+
+    import app.services.market_calendar as mc
+
+    def fake_status(now=None):
+        ts = now or datetime.now(UTC)
+        return mc.MarketStatus(
+            is_open=False, timezone=mc.MARKET_TIMEZONE,
+            last_close=ts - timedelta(hours=10),  # well outside the 35-minute closing grace
+            next_open=ts + timedelta(hours=14), current_bucket=None, status_reason="test-closed",
+        )
+
+    monkeypatch.setattr(mc, "get_market_status", fake_status)
+
+    crypto_result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
+    crypto_assets = crypto_result.scalars().all()
+
+    now = datetime.now(UTC)
+    completed_bucket = now.replace(minute=(now.minute // 30) * 30, second=0, microsecond=0) - timedelta(minutes=30)
+    for asset in crypto_assets:
+        db.add(CryptoQuoteObservation(asset_id=asset.id, ts=completed_bucket + timedelta(minutes=5), price_usd=100.0, is_demo=False))
+        db.add(CryptoQuoteObservation(asset_id=asset.id, ts=completed_bucket + timedelta(minutes=15), price_usd=101.0, is_demo=False))
+    await db.commit()
+
+    counts = await cmd_refresh_intraday()
+
+    assert counts["market_closed"] is True
+    assert counts["score_stocks_recomputed"] == 0
+
+    crypto_candle_count = (
+        await db.execute(select(func.count()).select_from(IntradayPrice).where(IntradayPrice.provider == "coingecko"))
+    ).scalar()
+    assert crypto_candle_count > 0
+
+
+@pytest.mark.asyncio
 async def test_cmd_refresh_intraday_marks_marketstack_failed_on_error(db: AsyncSession, monkeypatch, httpx_mock) -> None:
     """A completely failed Marketstack batch call must be visible in the
     returned counts, not hidden behind whatever crypto candles happened to

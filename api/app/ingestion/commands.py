@@ -21,14 +21,15 @@ import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.config import get_settings
 from app.database import get_engine, get_factory, init_db
 from app.ingestion.errors import MissingProviderKeysError
-from app.ingestion.runner import _upsert_quote, ingest_asset, seed_asset_catalogue
+from app.ingestion.runner import _upsert_prices, _upsert_quote, ingest_asset, seed_asset_catalogue
 from app.models.asset import Asset
 from app.models.crypto_observation import CryptoQuoteObservation
+from app.models.intraday_price import IntradayPrice
 from app.providers.coingecko import CoinGeckoProvider
 from app.providers.marketstack import MarketstackProvider
 from app.services.scoring import recompute_all_scores
@@ -160,8 +161,15 @@ async def cmd_refresh_crypto_quotes() -> dict:
         return counts
 
 
-async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> dict:
-    """Refresh EOD prices for every stock."""
+_CRYPTO_HISTORY_CONCURRENCY = 5
+
+
+async def cmd_refresh_stock_eod(skip_weekends: bool = True, days: int = 90) -> dict:
+    """Refresh EOD prices for every stock using ONE batched Marketstack call
+    (fetch_eod_batch) instead of one sequential request per symbol — the
+    Tuesday/Friday job was spending most of its wall-clock time waiting on
+    ~20 sequential round trips for no additional provider-call cost, since
+    Marketstack already bills the batch per symbol either way."""
     settings = get_settings()
     counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0, "records_written": 0}
     if settings.use_demo_data:
@@ -185,22 +193,45 @@ async def cmd_refresh_stock_eod(skip_weekends: bool = True) -> dict:
         stock_rows = result.all()
 
     counts["requested"] = len(stock_rows)
-    for asset_id, symbol in stock_rows:
-        try:
-            async with get_factory()() as asset_db:
-                asset = await asset_db.get(Asset, asset_id)
-                n = await ingest_asset(asset_db, asset, ms)
+    if not stock_rows:
+        return counts
+
+    try:
+        by_symbol = await ms.fetch_eod_batch([symbol for _, symbol in stock_rows], days=days)
+    except Exception:
+        log.exception("Marketstack batch EOD call failed — existing data preserved")
+        counts["failed"] = len(stock_rows)
+        return counts
+
+    async with get_factory()() as db:
+        for asset_id, symbol in stock_rows:
+            rows = by_symbol.get(symbol.upper(), [])
+            if not rows:
+                log.warning("%s: no EOD rows in batch response — existing data preserved", symbol)
+                counts["failed"] += 1
+                continue
+            try:
+                asset = await db.get(Asset, asset_id)
+                n = await _upsert_prices(db, asset.id, rows, is_demo=False)
+                asset.updated_at = datetime.now(UTC)
+                await db.commit()
                 log.info("%s: %d rows upserted", symbol, n)
                 counts["succeeded"] += 1
                 counts["records_written"] += n
-        except Exception:
-            log.exception("Failed to refresh %s — skipping, existing data preserved", symbol)
-            counts["failed"] += 1
+            except Exception:
+                await db.rollback()
+                log.exception("Failed to upsert %s — skipping, existing data preserved", symbol)
+                counts["failed"] += 1
     return counts
 
 
 async def cmd_refresh_crypto_history() -> dict:
-    """Refresh 90-day OHLCV history for every crypto asset from CoinGecko."""
+    """Refresh 90-day OHLCV history for every crypto asset from CoinGecko.
+
+    CoinGecko has no batched historical-OHLCV endpoint (unlike its current-
+    quote batch), so this uses small bounded concurrency instead of a fully
+    sequential loop — the same ~100 provider calls, just not one at a time.
+    """
     settings = get_settings()
     counts = {"requested": 0, "succeeded": 0, "skipped": 0, "failed": 0, "records_written": 0}
     if settings.use_demo_data:
@@ -219,16 +250,39 @@ async def cmd_refresh_crypto_history() -> dict:
         crypto_rows = result.all()
 
     counts["requested"] = len(crypto_rows)
-    for asset_id, symbol in crypto_rows:
-        try:
-            async with get_factory()() as asset_db:
-                asset = await asset_db.get(Asset, asset_id)
-                n = await ingest_asset(asset_db, asset, cg)
+    semaphore = asyncio.Semaphore(_CRYPTO_HISTORY_CONCURRENCY)
+    # The network fetch is what benefits from concurrency; the DB write is
+    # fast and, on SQLite (dev/test), a single writer at a time — concurrent
+    # connections attempting to write simultaneously raise "database is
+    # locked" there. Serializing just the write keeps the fetches
+    # overlapped while staying safe on both SQLite and PostgreSQL.
+    write_lock = asyncio.Lock()
+
+    async def _refresh_one(asset_id: int, symbol: str) -> tuple[bool, int]:
+        async with semaphore:
+            try:
+                async with get_factory()() as fetch_db:
+                    asset = await fetch_db.get(Asset, asset_id)
+                    key = asset.coingecko_id if asset.coingecko_id else asset.symbol
+                    rows = await cg.fetch_ohlcv(key, 90)
+
+                async with write_lock, get_factory()() as write_db:
+                    asset = await write_db.get(Asset, asset_id)
+                    n = await _upsert_prices(write_db, asset.id, rows, is_demo=False)
+                    asset.updated_at = datetime.now(UTC)
+                    await write_db.commit()
                 log.info("%s: %d rows upserted", symbol, n)
-                counts["succeeded"] += 1
-                counts["records_written"] += n
-        except Exception:
-            log.exception("Failed to refresh %s — skipping, existing data preserved", symbol)
+                return True, n
+            except Exception:
+                log.exception("Failed to refresh %s — skipping, existing data preserved", symbol)
+                return False, 0
+
+    results = await asyncio.gather(*(_refresh_one(asset_id, symbol) for asset_id, symbol in crypto_rows))
+    for ok, n in results:
+        if ok:
+            counts["succeeded"] += 1
+            counts["records_written"] += n
+        else:
             counts["failed"] += 1
     return counts
 
@@ -246,6 +300,7 @@ async def cmd_refresh_intraday() -> dict:
     """
     from app.services.intraday import (
         BUCKET_MINUTES,
+        INTERVAL,
         IntradayObservation,
         build_30min_candles,
         ingest_intraday_candles,
@@ -264,13 +319,12 @@ async def cmd_refresh_intraday() -> dict:
     status = get_market_status(now)
     closing_grace = timedelta(minutes=35)
     is_final_closing_bucket = not status.is_open and (now - status.last_close) <= closing_grace
-    if not status.is_open and not is_final_closing_bucket:
-        log.info("US market closed — skipping intraday refresh")
-        counts["skipped"] = 1
-        return counts
-
-    _require_keys(settings)
-    ms = MarketstackProvider(settings.marketstack_api_key)
+    # Crypto candle building always runs (crypto trades 24/7) — only the
+    # Marketstack stock fetch and live stock/crypto score recomputation stop
+    # while the US market is closed, except to finalize the last bucket of
+    # the session that just closed (within the grace window).
+    market_active_for_stocks = status.is_open or is_final_closing_bucket
+    counts["market_closed"] = not market_active_for_stocks
 
     async with get_factory()() as db:
         stocks_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
@@ -279,37 +333,63 @@ async def cmd_refresh_intraday() -> dict:
         crypto_assets = list(crypto_result.scalars().all())
 
     counts["requested"] = len(stocks) + len(crypto_assets)
-
-    # Stocks: one batched Marketstack call for every symbol.
     counts["marketstack_failed"] = False
-    try:
-        candles_by_symbol = await ms.fetch_intraday_candles_batch([s.symbol for s in stocks])
-    except Exception:
-        log.exception("Marketstack batch intraday call failed — existing data preserved")
-        candles_by_symbol = {}
-        counts["failed"] += len(stocks)
-        counts["marketstack_failed"] = True
 
-    if candles_by_symbol:
-        async with get_factory()() as db:
-            for stock in stocks:
-                candles = [
-                    c for c in candles_by_symbol.get(stock.symbol, [])
-                    if c.bucket_ts + timedelta(minutes=BUCKET_MINUTES) <= now
-                ]
-                if not candles:
-                    counts["skipped"] += 1
-                    continue
-                n = await ingest_intraday_candles(db, stock.id, candles, provider="marketstack", is_demo=False)
-                counts["succeeded"] += 1
-                log.info("%s: %d intraday candles upserted", stock.symbol, n)
-            await db.commit()
+    if market_active_for_stocks:
+        _require_keys(settings)
+        ms = MarketstackProvider(settings.marketstack_api_key)
 
-    # Crypto: build candles purely from stored 5-minute observations — no provider calls.
-    lookback = now - timedelta(hours=2)
+        # Stocks: one batched Marketstack call for every symbol.
+        try:
+            candles_by_symbol = await ms.fetch_intraday_candles_batch([s.symbol for s in stocks])
+        except Exception:
+            log.exception("Marketstack batch intraday call failed — existing data preserved")
+            candles_by_symbol = {}
+            counts["failed"] += len(stocks)
+            counts["marketstack_failed"] = True
+
+        if candles_by_symbol:
+            async with get_factory()() as db:
+                for stock in stocks:
+                    candles = [
+                        c for c in candles_by_symbol.get(stock.symbol, [])
+                        if c.bucket_ts + timedelta(minutes=BUCKET_MINUTES) <= now
+                    ]
+                    if not candles:
+                        counts["skipped"] += 1
+                        continue
+                    n = await ingest_intraday_candles(db, stock.id, candles, provider="marketstack", is_demo=False)
+                    counts["succeeded"] += 1
+                    log.info("%s: %d intraday candles upserted", stock.symbol, n)
+                await db.commit()
+    else:
+        log.info("US market closed — skipping Marketstack stock fetch (crypto candles still build)")
+        counts["skipped"] += len(stocks)
+
+    # Crypto: build candles purely from stored 5-minute observations — no
+    # provider calls — and always runs regardless of US market hours, since
+    # crypto trades continuously through nights, weekends and holidays.
+    # Resumes from each asset's latest stored completed candle (bounded by
+    # the raw-observation retention window) instead of a fixed lookback, so
+    # a gap in job runs doesn't silently lose data still within retention.
+    default_lookback = now - timedelta(hours=2)
+    retention_floor = now - timedelta(days=_CRYPTO_OBSERVATION_RETENTION_DAYS)
     async with get_factory()() as db:
         for asset in crypto_assets:
             try:
+                latest_result = await db.execute(
+                    select(func.max(IntradayPrice.bucket_ts)).where(
+                        IntradayPrice.asset_id == asset.id, IntradayPrice.interval == INTERVAL,
+                    )
+                )
+                latest_bucket = latest_result.scalar()
+                if latest_bucket is not None:
+                    if latest_bucket.tzinfo is None:
+                        latest_bucket = latest_bucket.replace(tzinfo=UTC)
+                    lookback = max(latest_bucket, retention_floor)
+                else:
+                    lookback = max(default_lookback, retention_floor)
+
                 obs_result = await db.execute(
                     select(CryptoQuoteObservation.ts, CryptoQuoteObservation.price_usd).where(
                         CryptoQuoteObservation.asset_id == asset.id,
@@ -342,26 +422,29 @@ async def cmd_refresh_intraday() -> dict:
     counts["score_pairs_recomputed"] = 0
     counts["score_stocks_recomputed"] = 0
     counts["score_stocks_failed"] = 0
-    async with get_factory()() as db:
-        stocks_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
-        stocks = stocks_result.scalars().all()
-        crypto_result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
-        crypto_assets = crypto_result.scalars().all()
-        for stock in stocks:
-            try:
-                results, _ = await recompute_intraday_scores_for_stock(db, stock, crypto_assets)
-                # Only count a stock as "recomputed" when it actually had
-                # candle data to score against — a stock with zero candles
-                # (e.g. Marketstack failed completely) trivially returns
-                # `[]` without raising, and that must not be mistaken for a
-                # real recomputation when checking whether the job as a
-                # whole produced anything.
-                if results:
-                    counts["score_stocks_recomputed"] += 1
-                    counts["score_pairs_recomputed"] += sum(1 for r in results if not r.collecting_data)
-            except Exception:
-                log.exception("Failed to recompute intraday scores for %s", stock.symbol)
-                counts["score_stocks_failed"] += 1
+    if market_active_for_stocks:
+        async with get_factory()() as db:
+            stocks_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
+            stocks = stocks_result.scalars().all()
+            crypto_result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
+            crypto_assets = crypto_result.scalars().all()
+            for stock in stocks:
+                try:
+                    results, _ = await recompute_intraday_scores_for_stock(db, stock, crypto_assets)
+                    # Only count a stock as "recomputed" when it actually had
+                    # candle data to score against — a stock with zero candles
+                    # (e.g. Marketstack failed completely) trivially returns
+                    # `[]` without raising, and that must not be mistaken for a
+                    # real recomputation when checking whether the job as a
+                    # whole produced anything.
+                    if results:
+                        counts["score_stocks_recomputed"] += 1
+                        counts["score_pairs_recomputed"] += sum(1 for r in results if not r.collecting_data)
+                except Exception:
+                    log.exception("Failed to recompute intraday scores for %s", stock.symbol)
+                    counts["score_stocks_failed"] += 1
+    else:
+        log.info("US market closed — skipping live score recomputation (crypto candles still built above)")
 
     return counts
 

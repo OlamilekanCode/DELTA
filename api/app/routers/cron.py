@@ -199,10 +199,11 @@ async def trigger_refresh_intraday(
     # Candle ingestion can look "successful" (crypto candles built fine from
     # already-stored observations) while the stock side is completely dead —
     # that must never be reported as success just because some candles
-    # existed. Only checked when the job actually attempted real work
-    # (skipped via demo-mode/market-closed never reaches this with
-    # requested > 0).
-    if counts.get("requested", 0) > 0 and (
+    # existed. Only checked when the job actually attempted real scoring
+    # work: skipped via demo-mode never reaches this with requested > 0, and
+    # a genuine market-closed run deliberately skips stock fetch/scoring
+    # (crypto candles still build) so it must not be flagged as failed here.
+    if counts.get("requested", 0) > 0 and not counts.get("market_closed") and (
         counts.get("marketstack_failed") or counts.get("score_stocks_recomputed", 0) == 0
     ):
         raise HTTPException(
