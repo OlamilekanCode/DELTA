@@ -45,6 +45,32 @@ class RobinhoodStockToken:
         self.current_multiplier = current_multiplier
 
 
+def _parse_active(raw_active: object, status: str) -> bool:
+    """Fails closed (inactive) on anything ambiguous — a token must never be
+    treated as active by accident.
+
+    - A real bool is trusted as-is.
+    - A string is parsed for "true"/"false" explicitly — Python's own
+      `bool("false")` is True (any non-empty string is truthy), which would
+      silently treat an explicit `"active": "false"` as active.
+    - A missing/null `active` field falls back to `status`, but an EMPTY
+      status (both `active` and `status`/`state` absent) means "unknown",
+      not "active" — it must fail closed rather than default to active.
+    """
+    if isinstance(raw_active, bool):
+        return raw_active
+    if isinstance(raw_active, str):
+        lowered = raw_active.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+        # Unrecognized string value — fall through to the status fallback.
+    if raw_active is None or isinstance(raw_active, str):
+        return status in ("active", "live")
+    return bool(raw_active)
+
+
 class RobinhoodAssetProvider:
     BASE = "https://api.robinhood.com/rhj/assets"
 
@@ -68,8 +94,12 @@ class RobinhoodAssetProvider:
         body = r.json()
         raw_items = body.get("results", body) if isinstance(body, dict) else body
         if not isinstance(raw_items, list):
-            log.warning("Robinhood asset registry response was not a list — skipping this sync")
-            return []
+            # Must raise, never return [] — the sync layer treats an empty
+            # list as "confirmed: nothing exists upstream anymore" and
+            # deactivates every previously-synced row from this source. An
+            # unparseable response is not that; it must be indistinguishable
+            # from any other fetch failure (preserve existing rows).
+            raise ProviderError(0, "Robinhood asset registry response was not a list")
 
         tokens: list[RobinhoodStockToken] = []
         for item in raw_items:
@@ -90,7 +120,7 @@ class RobinhoodAssetProvider:
             except (TypeError, ValueError):
                 decimals = 18
             status = (item.get("status") or item.get("state") or "").lower()
-            active = bool(item.get("active", status in ("active", "live", "")))
+            active = _parse_active(item.get("active"), status)
             multiplier_raw = item.get("current_multiplier") or item.get("currentMultiplier")
             try:
                 current_multiplier = float(multiplier_raw) if multiplier_raw is not None else None

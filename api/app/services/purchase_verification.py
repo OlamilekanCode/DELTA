@@ -90,12 +90,33 @@ def _decode_uint(data: str) -> int:
     return int(data, 16) if data and data != "0x" else 0
 
 
+def _router_adapters_configured(settings) -> bool:
+    """Environment variables alone never activate purchase verification —
+    each configured router/pool address also needs a matching RouterAdapter
+    registered in ROUTER_ADAPTERS with real, audited method selectors
+    (never guessed). Without this, `_is_configured` would report "ready"
+    while every actual verification attempt still fails deep in the
+    pipeline with `purchase_verification_not_configured` — this makes that
+    gap visible up front instead."""
+    configured_addresses = settings.parsed_dex_router_addresses | settings.parsed_dex_pool_addresses
+    return any(addr.lower() in ROUTER_ADAPTERS for addr in configured_addresses)
+
+
 def _is_configured(settings) -> bool:
     # A missing/zero launch block in production would let a pre-launch or
     # unrelated historical transaction be claimed as a $SynthEx purchase —
     # fail closed rather than allow verification without it.
     if settings.app_env == "production" and settings.synthex_token_start_block <= 0:
         return False
+    # Deliberately does NOT also require a registered RouterAdapter here —
+    # that's a per-transaction routing decision (_adapter_for, deeper in
+    # verify_purchase) which already fails closed with its own distinct
+    # `purchase_verification_not_configured` status. Folding it in here
+    # would make this the SAME gate for two different concerns ("is basic
+    # config present" vs "is there an adapter for this specific
+    # destination"), short-circuiting every other check verify_purchase is
+    # meant to run. See purchase_verification_status() for the combined
+    # operational view used by the health check.
     return bool(
         settings.synthex_chain_id
         and settings.robinhood_rpc_url
@@ -103,6 +124,34 @@ def _is_configured(settings) -> bool:
         and settings.parsed_dex_router_addresses | settings.parsed_dex_pool_addresses
         and settings.synthex_weth_address
     )
+
+
+def purchase_verification_status() -> dict:
+    """Operational status for admins/monitoring — distinguishes "no env
+    vars set yet" from the more subtle "env vars are set but no
+    RouterAdapter code has been registered for them yet" gap, which
+    `_is_configured` alone collapses into one boolean and which never
+    self-resolves just by editing environment variables."""
+    settings = get_settings()
+    env_vars_present = bool(
+        settings.synthex_chain_id
+        and settings.robinhood_rpc_url
+        and settings.synthex_token_address
+        and settings.parsed_dex_router_addresses | settings.parsed_dex_pool_addresses
+        and settings.synthex_weth_address
+    )
+    adapters_registered = _router_adapters_configured(settings)
+    if not env_vars_present:
+        status = "env_not_configured"
+    elif not adapters_registered:
+        status = "env_configured_no_adapters"
+    else:
+        status = "ready"
+    return {
+        "status": status,
+        "env_vars_present": env_vars_present,
+        "router_adapters_registered": adapters_registered,
+    }
 
 
 async def _lookup_eth_usd_price(

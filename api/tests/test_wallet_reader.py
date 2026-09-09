@@ -12,6 +12,11 @@ import pytest
 
 from app.models.portfolio_contract import PortfolioContract
 from app.services.blockchain import MockRpcProvider
+from app.services.multicall import (
+    encode_aggregate3,
+    encode_balance_of_calldata,
+    multicall3_address_for_chain,
+)
 from app.services.portfolio_assets import NATIVE
 from app.services.wallet_reader import read_balances_batched
 
@@ -23,6 +28,26 @@ def _contract(chain_id: int, address: str, contract_type: str = "erc20") -> Port
         asset_id=1, chain_id=chain_id, contract_address=address, contract_type=contract_type,
         decimals=18, source="test", verified=True, active=True,
     )
+
+
+class _MalformedRpc:
+    """A stub RpcProvider whose balance calls return None (malformed/empty
+    RPC response), as JsonRpcProvider now does — never a confirmed zero."""
+
+    def __init__(self, chain_id: int) -> None:
+        self.chain_id = chain_id
+
+    async def get_chain_id(self) -> int:
+        return self.chain_id
+
+    async def get_block_number(self) -> int:
+        return 1
+
+    async def get_native_balance(self, wallet_address: str) -> int | None:
+        return None
+
+    async def get_erc20_balance(self, token_address: str, wallet_address: str) -> int | None:
+        return None
 
 
 @pytest.mark.asyncio
@@ -48,6 +73,36 @@ async def test_erc20_balances_batch_through_multicall_on_known_chain() -> None:
 
 
 @pytest.mark.asyncio
+async def test_malformed_but_successful_call_leaves_balance_unknown_not_zero() -> None:
+    """A call that reports success=True but returns fewer than 32 bytes
+    (a malformed/truncated node response) must be left OUT of the result —
+    never written as a confirmed 0, which would silently overwrite a real
+    cached balance on the next portfolio refresh."""
+    token_a = "0x" + "11" * 20
+    multicall_address = multicall3_address_for_chain(8453)
+    assert multicall_address is not None
+    call_data = encode_balance_of_calldata(_WALLET)
+    request_data = encode_aggregate3([(token_a, call_data)])
+
+    # success=True, return_data_rel_offset=64, return_data_len=0 (empty —
+    # shorter than the 32 bytes decode_balance_result requires).
+    n = 1
+    head = ((n * 32) + 0 * 128).to_bytes(32, "big")
+    tail = (1).to_bytes(32, "big") + (64).to_bytes(32, "big") + (0).to_bytes(32, "big")
+    array_data = n.to_bytes(32, "big") + head + tail
+    body = (32).to_bytes(32, "big") + array_data
+    malformed_response = "0x" + body.hex()
+
+    mock = MockRpcProvider(
+        chain_id=8453,
+        raw_eth_call_responses={(multicall_address, request_data): malformed_response},
+    )
+    contracts = [_contract(8453, token_a)]
+    balances = await read_balances_batched(mock, 8453, _WALLET, contracts)
+    assert token_a not in balances
+
+
+@pytest.mark.asyncio
 async def test_missing_balance_result_is_absent_not_zero() -> None:
     """A contract the mock has no balance entry for must be OMITTED from
     the result — never silently reported as a confirmed zero balance."""
@@ -58,6 +113,26 @@ async def test_missing_balance_result_is_absent_not_zero() -> None:
     balances = await read_balances_batched(mock, 8453, _WALLET, contracts)
     assert balances[token_a] == 100
     assert token_unknown not in balances
+
+
+@pytest.mark.asyncio
+async def test_malformed_native_balance_response_leaves_balance_unknown() -> None:
+    rpc = _MalformedRpc(chain_id=4663)
+    contracts = [_contract(4663, NATIVE, "native")]
+    balances = await read_balances_batched(rpc, 4663, _WALLET, contracts)
+    assert NATIVE not in balances
+
+
+@pytest.mark.asyncio
+async def test_malformed_erc20_fallback_response_leaves_balance_unknown() -> None:
+    """Robinhood Chain (or any chain with no confirmed Multicall3 address)
+    uses the per-token eth_call fallback — a malformed response there must
+    never become a confirmed zero either."""
+    token_a = "0x" + "11" * 20
+    rpc = _MalformedRpc(chain_id=4663)
+    contracts = [_contract(4663, token_a)]
+    balances = await read_balances_batched(rpc, 4663, _WALLET, contracts)
+    assert token_a not in balances
 
 
 @pytest.mark.asyncio

@@ -118,6 +118,12 @@ async def recompute_all_scores(db: AsyncSession) -> int:
                 flags.append("adj_close_missing")
             if s.observations < MIN_OBSERVATIONS * 1.2:
                 flags.append("low_observations")
+            if not s.is_defined:
+                # score is a 0.0 placeholder (NaN from zero-variance input,
+                # e.g. one side's prices never moved over the window) —
+                # never a confirmed "no relationship". Must not look the
+                # same as a genuinely computed flat correlation.
+                flags.append("undefined_correlation")
 
             new_rows.append({
                 "stock_id": stock.id,

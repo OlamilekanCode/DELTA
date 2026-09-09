@@ -131,6 +131,14 @@ async def refresh_wallet_balance(
         log.exception("Unexpected RPC failure refreshing wallet balance")
         return BalanceRefreshResult(status="rpc_error", message="Unexpected RPC failure")
 
+    if balance_raw_int is None:
+        # Malformed/empty RPC response (see services/blockchain.py's
+        # _hex_to_balance) — never a confirmed zero. Comparing None >= int
+        # would crash the request; this must fail closed the same way an
+        # RpcError does, never silently resolve to is_holder=False.
+        log.warning("Malformed balance response refreshing wallet balance for %s", wallet_lower)
+        return BalanceRefreshResult(status="rpc_error", message="Malformed RPC response — try again shortly")
+
     # Integer comparison only — token balances are never represented as float.
     min_balance_raw_int = int(settings.synthex_holder_min_balance_raw)
     is_holder = balance_raw_int >= min_balance_raw_int

@@ -90,7 +90,23 @@ def intraday_status(data_ts: datetime | None, now: datetime | None = None) -> st
     now = _aware(now or datetime.now(UTC))
     status = get_market_status(now)
     if not status.is_open:
-        return "market_closed" if data_ts is not None else "collecting_data"
+        if data_ts is None:
+            return "collecting_data"
+        # "market_closed" means the last score is current, just frozen —
+        # it must NOT accept a score of any age (a broken intraday job
+        # from weeks ago would otherwise still read as "current"). The
+        # final closing calculation for the most recently completed
+        # session may still be processing shortly after close, so a score
+        # reflecting the PRIOR session is tolerated ONLY for a short grace
+        # window right after that close — not for the entire time the
+        # market happens to stay closed afterward (a weekend, a holiday).
+        # Once the grace elapses, the score must reflect the most recent
+        # close itself.
+        data_date = _aware(data_ts).date()
+        last_close_date = status.last_close.date()
+        grace_deadline = status.last_close + timedelta(minutes=_INTRADAY_GRACE_MINUTES)
+        floor_date = previous_trading_session(last_close_date) if now < grace_deadline else last_close_date
+        return "stale" if data_date < floor_date else "market_closed"
     if data_ts is None:
         return "collecting_data"
     if status.current_bucket is None:

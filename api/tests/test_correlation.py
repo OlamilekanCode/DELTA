@@ -30,25 +30,42 @@ def test_log_returns_too_short() -> None:
 def test_pearson_r_perfect_correlation() -> None:
     xs = list(range(1, 50))
     ys = [x * 2.0 for x in xs]
-    r, n = pearson_r(xs, ys)
+    r, n, is_defined = pearson_r(xs, ys)
     assert math.isclose(r, 1.0, abs_tol=1e-9)
     assert n == 49
+    assert is_defined is True
 
 
 def test_pearson_r_perfect_inverse_correlation() -> None:
     xs = list(range(1, 50))
     ys = [-x * 2.0 for x in xs]
-    r, n = pearson_r(xs, ys)
+    r, n, is_defined = pearson_r(xs, ys)
     assert math.isclose(r, -1.0, abs_tol=1e-9)
     assert n == 49
+    assert is_defined is True
 
 
 def test_pearson_r_insufficient_observations() -> None:
     xs = list(range(1, 10))  # only 9 — below MIN_OBSERVATIONS
     ys = list(range(1, 10))
-    r, n = pearson_r(xs, ys)
+    r, n, is_defined = pearson_r(xs, ys)
     assert r == 0.0
     assert n == 9
+    # Too few observations — 0.0 is a placeholder, never a confirmed
+    # "no relationship". Callers must check is_defined, not just the score.
+    assert is_defined is False
+
+
+def test_pearson_r_nan_from_zero_variance_is_undefined() -> None:
+    """One series with zero variance (e.g. a flat/degenerate price window)
+    produces NaN from numpy — must report is_defined=False, not silently
+    round to a confirmed 0.0."""
+    xs = [1.0] * 50  # zero variance
+    ys = list(range(1, 51))
+    r, n, is_defined = pearson_r(xs, ys)
+    assert r == 0.0
+    assert n == 50
+    assert is_defined is False
 
 
 def test_normalize_base100() -> None:

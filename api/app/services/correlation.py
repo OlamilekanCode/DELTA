@@ -35,15 +35,21 @@ def align_series(
 
 def pearson_r(
     xs: list[float], ys: list[float], min_observations: int = MIN_OBSERVATIONS
-) -> tuple[float, int]:
+) -> tuple[float, int, bool]:
+    """Returns (score, n, is_defined). `is_defined=False` means the 0.0
+    score is a placeholder, not a real computed correlation — either too
+    few observations, or NaN from numpy (e.g. one series has zero variance
+    over the window). Callers must never persist or display that
+    placeholder as if it were a confirmed "no relationship" — see
+    services/scoring.py and services/intraday.py for how each tags this."""
     n = len(xs)
     if n < min_observations:
-        return 0.0, n
+        return 0.0, n, False
     arr = np.corrcoef(np.array(xs, dtype=float), np.array(ys, dtype=float))
     r = float(arr[0, 1])
     if math.isnan(r):
-        return 0.0, n
-    return r, n
+        return 0.0, n, False
+    return r, n, True
 
 
 def normalize_base100(prices: list[float]) -> list[float]:
@@ -64,6 +70,7 @@ class ExposureScore:
     raw_correlation: float
     observations: int
     last_date: str        # most recent aligned date used in the calculation
+    is_defined: bool = True  # False means score is a 0.0 placeholder, not a real correlation
 
 
 def compute_exposure_scores(
@@ -85,7 +92,7 @@ def compute_exposure_scores(
         c_rets = log_returns([crypto_by_date[d] for d in common_dates])
         if len(s_rets) < MIN_OBSERVATIONS:
             continue
-        r, n = pearson_r(s_rets, c_rets)
+        r, n, is_defined = pearson_r(s_rets, c_rets)
         results.append(ExposureScore(
             symbol=symbol,
             name=name,
@@ -94,6 +101,7 @@ def compute_exposure_scores(
             raw_correlation=round(r, 4),
             observations=n,
             last_date=common_dates[-1],
+            is_defined=is_defined,
         ))
 
     # Sort by relationship magnitude so the strongest relationships appear first,

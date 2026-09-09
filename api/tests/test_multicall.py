@@ -127,8 +127,15 @@ def test_decode_aggregate3_result_truncated_response_fails_closed_for_missing() 
     assert decoded[1] == (False, b"")
 
 
-def test_decode_balance_result_empty_bytes_is_zero() -> None:
-    assert decode_balance_result(b"") == 0
+def test_decode_balance_result_empty_bytes_is_none_not_zero() -> None:
+    """Empty/malformed return data must never be read as a confirmed zero
+    balance — the caller (wallet_reader.py) must be able to distinguish
+    "unknown" from "genuinely holds zero"."""
+    assert decode_balance_result(b"") is None
+
+
+def test_decode_balance_result_short_bytes_is_none_not_zero() -> None:
+    assert decode_balance_result(b"\x00" * 31) is None
 
 
 def test_multicall3_address_uses_known_default_for_ethereum_and_base() -> None:

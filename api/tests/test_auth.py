@@ -417,8 +417,10 @@ async def test_concurrent_nonce_consumption_only_one_succeeds(db: AsyncSession, 
     ).scalar_one()
     nonce_id = nonce_row.id
 
+    from tests.conftest import _test_db_url
+
     engine = create_async_engine(
-        "sqlite+aiosqlite:///./test.db", connect_args={"check_same_thread": False}
+        _test_db_url(), connect_args={"check_same_thread": False}
     )
     factory = async_sessionmaker(engine, expire_on_commit=False)
 

@@ -183,4 +183,11 @@ class CoinGeckoProvider:
             raise ProviderError(r.status_code, f"CoinGecko coins list error {r.status_code}")
 
         data = r.json()
-        return data if isinstance(data, list) else []
+        if not isinstance(data, list):
+            # Must raise, never return [] — the portfolio catalogue sync
+            # treats an empty list as "confirmed: nothing exists upstream
+            # anymore" and deactivates every previously-synced row from
+            # this source. An unparseable response must be indistinguishable
+            # from any other fetch failure (preserve existing rows).
+            raise ProviderError(0, "CoinGecko coins list response was not a list")
+        return data

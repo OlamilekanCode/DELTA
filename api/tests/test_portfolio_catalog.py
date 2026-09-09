@@ -12,12 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
 from app.models.portfolio_contract import PortfolioContract
+from app.services.portfolio_assets import NATIVE
 from app.services.portfolio_catalog import (
     BASE_CHAIN_ID,
     ETHEREUM_CHAIN_ID,
     ROBINHOOD_CHAIN_ID,
     sync_crypto_contracts_from_coingecko,
     sync_curated_aliases,
+    sync_native_gas_tokens,
     sync_robinhood_stock_tokens,
 )
 
@@ -78,7 +80,11 @@ async def test_sync_crypto_contracts_matches_only_tracked_coingecko_ids(db: Asyn
     btc_row = next(r for r in rows if r.contract_address == "0xwbtcfake")
     assert btc_row.asset_id == btc.id
     assert btc_row.chain_id == ETHEREUM_CHAIN_ID
-    assert btc_row.verified is True
+    # CoinGecko's list endpoint has no per-platform decimals field — the
+    # decimals stored here is an assumed default, never confirmed, so this
+    # must never be auto-verified (would risk misvaluing a holding by
+    # orders of magnitude if the real decimals differ).
+    assert btc_row.verified is False
     assert btc_row.source == "coingecko"
 
 
@@ -177,7 +183,9 @@ async def test_sync_robinhood_filters_to_tracked_symbols_active_chain_4663(db: A
     assert rows[0].asset_id == nvda.id
     assert rows[0].chain_id == ROBINHOOD_CHAIN_ID
     assert rows[0].contract_type == "robinhood_stock"
-    assert rows[0].verified is True
+    # The registry's response schema is explicitly best-effort and not
+    # reconfirmed against a live response — never auto-verified.
+    assert rows[0].verified is False
 
 
 @pytest.mark.asyncio
@@ -192,6 +200,182 @@ async def test_sync_robinhood_preserves_previous_rows_on_fetch_failure(db: Async
     counts = await sync_robinhood_stock_tokens(db, failing_rh)
     assert counts["failed"] is True
     assert len(await _contracts(db)) == 1
+
+
+@pytest.mark.asyncio
+async def test_verified_row_decimals_frozen_against_later_unverified_sync(db: AsyncSession) -> None:
+    """A human confirming a token's real decimals (e.g. 6 for a USDC-like
+    token CoinGecko guessed as 18) must survive every later sync pass that
+    itself can't confirm that value — or wallet valuation could become
+    wrong by orders of magnitude."""
+    cg = _FakeCoinGecko(coins=[{"id": "bitcoin", "symbol": "btc", "platforms": {"ethereum": "0xWBTCFAKE"}}])
+    await sync_crypto_contracts_from_coingecko(db, cg)
+    row = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == "0xwbtcfake")
+    )).scalar_one()
+    row.verified = True
+    row.decimals = 6  # human-confirmed real value, overriding the guessed 18
+    await db.commit()
+
+    # A later sync pass re-resolves the same address (still verified=False,
+    # still the guessed default).
+    await sync_crypto_contracts_from_coingecko(db, cg)
+
+    refreshed = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == "0xwbtcfake")
+    )).scalar_one()
+    assert refreshed.decimals == 6
+    assert refreshed.verified is True
+
+
+@pytest.mark.asyncio
+async def test_refused_reassignment_still_marked_touched_not_deactivated(db: AsyncSession) -> None:
+    """A protected verified row (reassignment refused) must stay active —
+    it was present in this run's response, so reconciliation must never
+    treat it as "gone upstream" just because _upsert_contract refused to
+    mutate it."""
+    eth = (await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one()
+    cg = _FakeCoinGecko(coins=[{"id": "ethereum", "symbol": "eth", "platforms": {"ethereum": "0xShared"}}])
+    await sync_crypto_contracts_from_coingecko(db, cg)
+    row = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == "0xshared")
+    )).scalar_one()
+    row.verified = True
+    row.asset_id = eth.id
+    await db.commit()
+
+    # Same run's response now resolves the SAME address to a different
+    # asset (BTC) — refused, but the address is still "present upstream".
+    cg2 = _FakeCoinGecko(coins=[{"id": "bitcoin", "symbol": "btc", "platforms": {"ethereum": "0xShared"}}])
+    counts = await sync_crypto_contracts_from_coingecko(db, cg2)
+
+    assert counts["deactivated"] == 0
+    refreshed = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == "0xshared")
+    )).scalar_one()
+    assert refreshed.active is True
+    assert refreshed.asset_id == eth.id
+
+
+@pytest.mark.asyncio
+async def test_sync_native_gas_tokens_registers_eth_on_ethereum_and_base(db: AsyncSession) -> None:
+    eth = (await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one()
+
+    counts = await sync_native_gas_tokens(db)
+    assert counts["contracts_written"] == 2
+
+    rows = await _contracts(db)
+    native_rows = [r for r in rows if r.contract_address == NATIVE]
+    assert {r.chain_id for r in native_rows} == {ETHEREUM_CHAIN_ID, BASE_CHAIN_ID}
+    for row in native_rows:
+        assert row.asset_id == eth.id
+        assert row.contract_type == "native"
+        assert row.decimals == 18
+        # 18 decimals for a native EVM gas token is a protocol constant,
+        # not guessed data — verified directly, no human confirmation
+        # needed, unlike every other source in this module.
+        assert row.verified is True
+        assert row.source == "native"
+
+
+@pytest.mark.asyncio
+async def test_sync_never_reassigns_a_verified_contract_to_a_different_asset(db: AsyncSession) -> None:
+    """A contract address resolving to a different asset than before (an
+    upstream data change) must never silently reassign a VERIFIED row —
+    cached wallet positions already keyed to the old asset would be
+    misvalued as the new one."""
+    eth = (await db.execute(select(Asset).where(Asset.symbol == "ETH"))).scalar_one()
+
+    cg = _FakeCoinGecko(coins=[{"id": "ethereum", "symbol": "eth", "platforms": {"ethereum": "0xShared"}}])
+    await sync_crypto_contracts_from_coingecko(db, cg)
+    row = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == "0xshared")
+    )).scalar_one()
+    row.verified = True
+    row.asset_id = eth.id
+    await db.commit()
+
+    # A later sync resolves the SAME address to a different asset (BTC).
+    cg2 = _FakeCoinGecko(coins=[{"id": "bitcoin", "symbol": "btc", "platforms": {"ethereum": "0xShared"}}])
+    await sync_crypto_contracts_from_coingecko(db, cg2)
+
+    refreshed = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == "0xshared")
+    )).scalar_one()
+    assert refreshed.asset_id == eth.id  # unchanged, never reassigned to btc.id
+    assert refreshed.verified is True
+
+
+@pytest.mark.asyncio
+async def test_sync_deactivates_rows_no_longer_present_upstream(db: AsyncSession) -> None:
+    """A contract removed from the upstream source between sync runs must
+    be deactivated, not left active indefinitely (upsert-only sync never
+    revisits it otherwise) — as long as the run overall still touched some
+    real data (see test_sync_skips_reconciliation_on_wholly_empty_response
+    for the "response was suspiciously empty" case, which must NOT
+    deactivate anything)."""
+    cg = _FakeCoinGecko(coins=[
+        {"id": "bitcoin", "symbol": "btc", "platforms": {"ethereum": "0xWillDisappear"}},
+    ])
+    await sync_crypto_contracts_from_coingecko(db, cg)
+    row = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == "0xwilldisappear")
+    )).scalar_one()
+    assert row.active is True
+
+    # Next sync still returns real data (ETH matched) but no longer
+    # includes BTC at all — a genuine, partial upstream change.
+    cg2 = _FakeCoinGecko(coins=[
+        {"id": "ethereum", "symbol": "eth", "platforms": {"ethereum": "0xEthAddr"}},
+    ])
+    counts = await sync_crypto_contracts_from_coingecko(db, cg2)
+    assert counts["deactivated"] == 1
+
+    refreshed = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == "0xwilldisappear")
+    )).scalar_one()
+    assert refreshed.active is False
+    # Never deleted — cached wallet positions keep their asset mapping.
+    assert refreshed.asset_id is not None
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_reconciliation_on_wholly_empty_response(db: AsyncSession) -> None:
+    """A technically-valid but wholly empty (or all-filtered-out) provider
+    response must NEVER be trusted as "confirmed: everything from this
+    source is gone now" — that would wipe out an entire source's catalogue
+    on a transient hiccup. Only reconciles when there's at least one
+    touched address as positive evidence this run saw real data."""
+    cg = _FakeCoinGecko(coins=[
+        {"id": "bitcoin", "symbol": "btc", "platforms": {"ethereum": "0xWillStay"}},
+    ])
+    await sync_crypto_contracts_from_coingecko(db, cg)
+
+    # A wholly empty (but still validly-shaped) response next run.
+    cg_empty = _FakeCoinGecko(coins=[])
+    counts = await sync_crypto_contracts_from_coingecko(db, cg_empty)
+    assert counts["deactivated"] == 0
+
+    refreshed = (await db.execute(
+        select(PortfolioContract).where(PortfolioContract.contract_address == "0xwillstay")
+    )).scalar_one()
+    assert refreshed.active is True
+
+
+@pytest.mark.asyncio
+async def test_sync_does_not_deactivate_rows_from_a_different_source(db: AsyncSession) -> None:
+    """Reconciliation must only touch rows from the SAME source — a
+    CoinGecko sync run must never deactivate a curated-alias row."""
+    await sync_curated_aliases(db)
+    alias_rows_before = [r for r in (await _contracts(db)) if r.source == "curated_alias"]
+    assert alias_rows_before
+
+    cg = _FakeCoinGecko(coins=[])
+    await sync_crypto_contracts_from_coingecko(db, cg)
+
+    alias_rows_after = [r for r in (await _contracts(db)) if r.source == "curated_alias"]
+    assert all(r.active for r in alias_rows_after)
+    assert len(alias_rows_after) == len(alias_rows_before)
 
 
 @pytest.mark.asyncio

@@ -75,6 +75,10 @@ export default function StockExposureList({ exposures, stockSymbol }: Props) {
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {exposures.scores.map((s, i) => {
           const c = CATEGORY_COLORS[s.category] ?? DEFAULT;
+          // A 0.0 placeholder from undefined correlation (NaN — e.g. one
+          // side had zero variance over the window) must never look like
+          // a confirmed, computed "no relationship".
+          const isUndefined = (s.data_quality ?? "").split(",").includes("undefined_correlation");
           return (
             <motion.div
               key={s.symbol}
@@ -97,11 +101,17 @@ export default function StockExposureList({ exposures, stockSymbol }: Props) {
                       {s.category}
                     </span>
                   </div>
-                  <span className="font-mono text-sm font-bold" style={{ color: s.score >= 0 ? SCORE_POS_COLOR : SCORE_INV_COLOR }}>
-                    {formatScore(s.score)}
-                  </span>
+                  {isUndefined ? (
+                    <span className="font-mono text-xs font-bold text-muted" title="Undefined correlation — one side had no price movement over this window">
+                      Undefined
+                    </span>
+                  ) : (
+                    <span className="font-mono text-sm font-bold" style={{ color: s.score >= 0 ? SCORE_POS_COLOR : SCORE_INV_COLOR }}>
+                      {formatScore(s.score)}
+                    </span>
+                  )}
                 </div>
-                <ScoreBar score={s.score} />
+                {!isUndefined && <ScoreBar score={s.score} />}
                 <p className="mt-1.5 font-mono text-xs text-muted">{s.observations} observations</p>
               </Link>
             </motion.div>

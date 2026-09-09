@@ -53,6 +53,16 @@ class Settings(BaseSettings):
 
     cron_secret: str = ""
 
+    # Shared secret between the Next.js BFF and this backend — lets the
+    # rate limiter trust an X-Forwarded-Client-IP header (the real
+    # browser IP, extracted by the BFF from its own incoming request) only
+    # when it actually came from our own BFF, instead of using the raw TCP
+    # peer address, which for every BFF-proxied request is Vercel's shared
+    # egress IP, not the end user's. Without this secret configured, the
+    # header is never trusted and rate limiting falls back to the raw
+    # peer address (current behavior) — never a regression, just unfixed.
+    bff_shared_secret: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

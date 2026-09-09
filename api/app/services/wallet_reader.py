@@ -46,8 +46,11 @@ async def read_balances_batched(
     if native_contracts:
         try:
             native_balance = await rpc.get_native_balance(wallet_address)
-            for c in native_contracts:
-                balances[c.contract_address] = native_balance
+            if native_balance is not None:
+                for c in native_contracts:
+                    balances[c.contract_address] = native_balance
+            else:
+                log.warning("Malformed native balance response for chain %s — leaving unknown", chain_id)
         except Exception:
             log.exception("Native balance read failed for chain %s", chain_id)
 
@@ -62,7 +65,14 @@ async def read_balances_batched(
         )
         for c in erc20_contracts:
             try:
-                balances[c.contract_address] = await rpc.get_erc20_balance(c.contract_address, wallet_address)
+                balance = await rpc.get_erc20_balance(c.contract_address, wallet_address)
+                if balance is not None:
+                    balances[c.contract_address] = balance
+                else:
+                    log.warning(
+                        "Malformed balanceOf response for %s on chain %s — leaving unknown",
+                        c.contract_address, chain_id,
+                    )
             except Exception:
                 log.exception("Balance read failed for %s on chain %s", c.contract_address, chain_id)
         return balances
@@ -80,7 +90,15 @@ async def read_balances_batched(
         decoded = decode_aggregate3_result(hex_result, expected_count=len(batch))
         for contract, (success, return_data) in zip(batch, decoded, strict=True):
             if success:
-                balances[contract.contract_address] = decode_balance_result(return_data)
+                balance = decode_balance_result(return_data)
+                if balance is not None:
+                    balances[contract.contract_address] = balance
+                else:
+                    log.warning(
+                        "Malformed balanceOf return data for %s on chain %s — "
+                        "leaving balance unknown rather than a confirmed zero",
+                        contract.contract_address, chain_id,
+                    )
             # else: leave missing — a failed per-call read (allowFailure)
             # is not a confirmed zero balance.
     return balances

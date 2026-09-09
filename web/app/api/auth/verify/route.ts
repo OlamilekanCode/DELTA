@@ -1,5 +1,11 @@
 import { cookies } from "next/headers";
-import { backendUrl, isBackendConfigured, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from "@/lib/bff";
+import {
+  backendUrl,
+  isBackendConfigured,
+  realClientIp,
+  SESSION_COOKIE_NAME,
+  SESSION_MAX_AGE_SECONDS,
+} from "@/lib/bff";
 
 export async function POST(request: Request) {
   if (!isBackendConfigured()) {
@@ -11,9 +17,17 @@ export async function POST(request: Request) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
 
+  const clientIp = realClientIp(request);
+  const secret = process.env.BFF_SHARED_SECRET;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (clientIp && secret) {
+    headers["X-Forwarded-Client-IP"] = clientIp;
+    headers["X-BFF-Shared-Secret"] = secret;
+  }
+
   const res = await fetch(backendUrl("/api/v1/auth/verify"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ message: payload.message, signature: payload.signature }),
     cache: "no-store",
   });

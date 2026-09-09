@@ -95,6 +95,37 @@ async def test_refresh_rpc_error_fails_closed(db: AsyncSession, configured) -> N
     assert result.status == "rpc_error"
 
 
+class _MalformedBalanceRpc:
+    """A stub RpcProvider whose balance call returns None (malformed/empty
+    RPC response), as JsonRpcProvider now does for a truncated response —
+    never a confirmed zero."""
+
+    def __init__(self, chain_id: int) -> None:
+        self.chain_id = chain_id
+
+    async def get_chain_id(self) -> int:
+        return self.chain_id
+
+    async def get_block_number(self) -> int:
+        return 1
+
+    async def get_erc20_balance(self, token_address: str, wallet_address: str) -> int | None:
+        return None
+
+    async def get_native_balance(self, wallet_address: str) -> int | None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_refresh_malformed_balance_fails_closed_not_crash(db: AsyncSession, configured) -> None:
+    """A malformed balance response (None) must return rpc_error, never
+    crash on `None >= min_balance` and never resolve to is_holder=False
+    as if it were a confirmed zero."""
+    mock = _MalformedBalanceRpc(chain_id=CHAIN_ID)
+    result = await refresh_wallet_balance(db, WALLET, rpc=mock)
+    assert result.status == "rpc_error"
+
+
 @pytest.mark.asyncio
 async def test_refresh_rpc_timeout_fails_closed_not_crash(db: AsyncSession, configured) -> None:
     mock = MockRpcProvider(chain_id=CHAIN_ID, raise_on_call=TimeoutError("secret-looking-timeout-detail"))
