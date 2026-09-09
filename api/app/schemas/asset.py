@@ -38,3 +38,9 @@ class AssetHistoryOut(BaseModel):
     is_demo: bool | None
     provider: str
     collecting_data: bool | None = None
+    requested_range: str | None = None
+    range_start: str | None = None  # ISO8601, start of the requested window
+    range_end: str | None = None  # ISO8601, end of the requested window
+    point_count: int = 0
+    expected_point_count: int | None = None  # theoretical max for the window; None if unknown
+    completeness: float | None = None  # point_count / expected_point_count, clamped to [0, 1]

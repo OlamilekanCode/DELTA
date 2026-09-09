@@ -34,6 +34,9 @@ export default function AssetHistorySection({ symbol, color, initialHistory }: P
   });
 
   const collectingData = history.collecting_data === true;
+  const hasPartialData = collectingData && history.prices.length > 0;
+  const completenessPct =
+    typeof history.completeness === "number" ? Math.round(history.completeness * 100) : null;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-white/[0.09] bg-panel p-5">
@@ -41,16 +44,22 @@ export default function AssetHistorySection({ symbol, color, initialHistory }: P
         <ChartRangeSelector value={range} onChange={setRange} />
         <FreshnessLabel isDemo={history.is_demo ?? null} provider={history.provider} />
       </div>
+      {hasPartialData && (
+        <p className="mb-2 font-mono text-xs text-muted/70">
+          Partial history — still collecting {RANGE_LABELS[range]} data
+          {completenessPct !== null ? ` (${completenessPct}% of window)` : ""}.
+        </p>
+      )}
       <div className="h-56 sm:h-72" aria-busy={isFetching}>
-        {collectingData ? (
+        {history.prices.length > 0 ? (
+          <AssetHistoryChartClient prices={history.prices} color={color} />
+        ) : collectingData ? (
           <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
             <p className="font-mono text-sm text-muted">
               Collecting {RANGE_LABELS[range]} intraday data…
             </p>
             <p className="font-mono text-xs text-muted/60">Check back after the next market session.</p>
           </div>
-        ) : history.prices.length > 0 ? (
-          <AssetHistoryChartClient prices={history.prices} color={color} />
         ) : (
           <div className="flex h-full items-center justify-center">
             <p className="font-mono text-sm text-muted">No price history available.</p>

@@ -70,6 +70,12 @@ export interface ApiAssetHistoryOut {
   is_demo: boolean | null;
   provider: string;
   collecting_data?: boolean | null;
+  requested_range?: string | null;
+  range_start?: string | null;
+  range_end?: string | null;
+  point_count?: number;
+  expected_point_count?: number | null;
+  completeness?: number | null;
 }
 
 export interface ApiExposureScore {

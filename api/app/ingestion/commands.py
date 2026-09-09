@@ -68,7 +68,12 @@ def _require_keys(settings) -> None:
 
 
 async def cmd_backfill() -> None:
-    """Initial 90-day historical backfill for all assets."""
+    """Initial one-time 365-day historical backfill for all assets.
+
+    Recurring refreshes (cmd_refresh_stock_eod, cmd_refresh_crypto_history)
+    stay at 90 days — that window is all the scoring methodology needs and
+    keeps recurring provider usage cheap. This command only runs once.
+    """
     settings = get_settings()
     if settings.use_demo_data:
         from app.ingestion.runner import seed_fixture_data
@@ -91,7 +96,7 @@ async def cmd_backfill() -> None:
         try:
             async with get_factory()() as asset_db:
                 asset = await asset_db.get(Asset, asset_id)
-                n = await ingest_asset(asset_db, asset, provider)
+                n = await ingest_asset(asset_db, asset, provider, days=365)
                 log.info("%s: %d rows upserted", symbol, n)
         except Exception:
             log.exception("Failed to ingest %s — skipping, existing data preserved", symbol)

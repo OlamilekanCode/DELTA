@@ -1,8 +1,13 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.runner import seed_fixture_intraday_data
+from app.models.asset import Asset
+from app.models.intraday_price import IntradayPrice
 
 
 @pytest.mark.asyncio
@@ -57,3 +62,99 @@ async def test_history_intraday_range_ready_after_seeding(
 async def test_history_unknown_symbol_404(client: AsyncClient) -> None:
     r = await client.get("/api/v1/assets/NOTASYMBOL/history?range=1D")
     assert r.status_code == 404
+
+
+async def _seed_crypto_candles(db: AsyncSession, symbol: str, bucket_offsets_hours: list[float]) -> None:
+    """Insert IntradayPrice rows directly at controlled offsets from now, bypassing
+    the fixture provider's stock-session-shaped generator — crypto trades
+    continuously, so its range semantics must be tested against a real
+    time-cutoff spread rather than session-bounded fixture data."""
+    result = await db.execute(select(Asset).where(Asset.symbol == symbol))
+    asset = result.scalar_one()
+    now = datetime.now(UTC)
+    for hours_ago in bucket_offsets_hours:
+        bucket_ts = now - timedelta(hours=hours_ago)
+        db.add(
+            IntradayPrice(
+                asset_id=asset.id,
+                bucket_ts=bucket_ts,
+                interval="30m",
+                open=100.0,
+                high=101.0,
+                low=99.0,
+                close=100.5,
+                provider="fixture",
+                sample_count=3,
+                is_demo=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_history_crypto_range_uses_continuous_time_cutoff(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    # Spread candles across 40 days so each range boundary (4h/24h/7d/30d) has
+    # points on both sides of the cutoff.
+    offsets = [1, 3, 5, 12, 23, 25, 48, 100, 200, 400, 700, 900]
+    await _seed_crypto_candles(db, "BTC", offsets)
+
+    r_4h = await client.get("/api/v1/assets/BTC/history?range=4H")
+    assert r_4h.status_code == 200
+    body_4h = r_4h.json()
+    assert len(body_4h["prices"]) == len([h for h in offsets if h <= 4])
+
+    r_1d = await client.get("/api/v1/assets/BTC/history?range=1D")
+    body_1d = r_1d.json()
+    assert len(body_1d["prices"]) == len([h for h in offsets if h <= 24])
+
+    r_1w = await client.get("/api/v1/assets/BTC/history?range=1W")
+    body_1w = r_1w.json()
+    assert len(body_1w["prices"]) == len([h for h in offsets if h <= 24 * 7])
+
+    r_1m = await client.get("/api/v1/assets/BTC/history?range=1M")
+    body_1m = r_1m.json()
+    assert len(body_1m["prices"]) == len([h for h in offsets if h <= 24 * 30])
+    # Never gated by the stock 13/65/260 bucket counts.
+    assert body_1m["expected_point_count"] == 24 * 30 * 2
+
+
+@pytest.mark.asyncio
+async def test_history_intraday_completeness_metadata_after_seeding(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    await seed_fixture_intraday_data(db)
+    r = await client.get("/api/v1/assets/NVDA/history?range=1D")
+    body = r.json()
+    assert body["requested_range"] == "1D"
+    assert body["point_count"] == 13
+    assert body["expected_point_count"] == 13
+    assert body["completeness"] == 1.0
+    assert body["range_start"] is not None
+    assert body["range_end"] is not None
+
+
+@pytest.mark.asyncio
+async def test_history_daily_completeness_metadata_present(client: AsyncClient) -> None:
+    r = await client.get("/api/v1/assets/NVDA/history?range=3M")
+    body = r.json()
+    assert body["requested_range"] == "3M"
+    assert body["point_count"] == len(body["prices"])
+    assert body["expected_point_count"] is not None
+    assert body["completeness"] is not None
+    assert 0.0 <= body["completeness"] <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_history_stock_1w_spans_five_sessions_not_flat_limit(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    await seed_fixture_intraday_data(db)
+    r = await client.get("/api/v1/assets/NVDA/history?range=1W")
+    body = r.json()
+    assert body["expected_point_count"] == 5 * 13
+    assert len(body["prices"]) == 5 * 13
+    assert body["collecting_data"] is False

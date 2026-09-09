@@ -172,7 +172,7 @@ async def seed_asset_catalogue(db: AsyncSession) -> None:
 
 
 async def ingest_asset(
-    db: AsyncSession, asset: Asset, provider: ProviderProtocol
+    db: AsyncSession, asset: Asset, provider: ProviderProtocol, days: int = 90
 ) -> int:
     key = (
         asset.coingecko_id
@@ -180,7 +180,7 @@ async def ingest_asset(
         else asset.symbol
     )
     is_demo = isinstance(provider, FixtureProvider)
-    rows: list[PriceRow] = await provider.fetch_ohlcv(key, 90)
+    rows: list[PriceRow] = await provider.fetch_ohlcv(key, days)
     n = await _upsert_prices(db, asset.id, rows, is_demo=is_demo)
     asset.updated_at = datetime.now(UTC)
     await db.commit()
@@ -208,7 +208,7 @@ async def seed_fixture_data(db: AsyncSession) -> None:
             db.add(asset)
             await db.flush()
 
-        rows = await provider.fetch_ohlcv(asset.symbol, 90)
+        rows = await provider.fetch_ohlcv(asset.symbol, 365)
         await _upsert_prices(db, asset.id, rows, is_demo=True)
 
         if asset.asset_type == "crypto":
