@@ -60,6 +60,7 @@ export interface ApiAssetListOut {
 export interface ApiHistoryPoint {
   date: string;
   close: number;
+  ts?: string | null;
 }
 
 export interface ApiAssetHistoryOut {
@@ -68,6 +69,13 @@ export interface ApiAssetHistoryOut {
   prices: ApiHistoryPoint[];
   is_demo: boolean | null;
   provider: string;
+  collecting_data?: boolean | null;
+  requested_range?: string | null;
+  range_start?: string | null;
+  range_end?: string | null;
+  point_count?: number;
+  expected_point_count?: number | null;
+  completeness?: number | null;
 }
 
 export interface ApiExposureScore {
@@ -100,6 +108,8 @@ export interface ApiGraphEdge {
   source: string;
   target: string;
   weight: number;
+  score: number;
+  direction: string;
 }
 
 export interface ApiGraphResult {
@@ -108,4 +118,28 @@ export interface ApiGraphResult {
   edges: ApiGraphEdge[];
   demo: boolean;
   computed_at: string | null;
+}
+
+export interface ApiIntradayScore {
+  symbol: string;
+  name: string;
+  category: string;
+  score: number;
+  observations: number;
+}
+
+export interface ApiIntradayResult {
+  stock: { symbol: string; name: string };
+  status: "ready" | "collecting_data";
+  scores: ApiIntradayScore[];
+  interval: string;
+  sessions_used: number;
+  demo: boolean;
+  current_count: number | null;
+  required_count: number | null;
+  estimated_ready: string | null;
+  data_ts: string | null;
+  freshness: "fresh" | "stale" | "collecting_data" | "market_closed" | null;
+  market_is_open: boolean | null;
+  next_market_open: string | null;
 }

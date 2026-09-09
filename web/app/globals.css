@@ -159,3 +159,16 @@ main > section::before {
 ::-webkit-scrollbar { width: 4px; background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(109, 74, 255, 0.3); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(109, 74, 255, 0.5); }
+
+/* ── Exposure graph (React Flow) controls ───────────────── */
+.exposure-graph-controls .react-flow__controls-button {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  fill: var(--color-violet-light);
+}
+.exposure-graph-controls .react-flow__controls-button:hover {
+  background: rgba(109, 74, 255, 0.15);
+}
+.exposure-graph-controls .react-flow__controls-button svg {
+  fill: var(--color-violet-light);
+}

@@ -15,6 +15,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { ApiGraphResult, ApiGraphNode } from "@/lib/types";
+import { formatScore } from "@/lib/format";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "Layer 1": "#F4C95D", "Layer 2": "#3D7BFF", "DeFi": "#9B7BFF",
@@ -47,7 +48,7 @@ function CryptoNode({ data }: NodeProps) {
     >
       <span className="font-mono text-xs font-bold" style={{ color }}>{data.symbol as string}</span>
       {score != null && (
-        <span className="font-mono text-[9px] opacity-70" style={{ color }}>{score.toFixed(2)}</span>
+        <span className="font-mono text-[9px] opacity-70" style={{ color }}>{formatScore(score)}</span>
       )}
     </div>
   );
@@ -91,19 +92,25 @@ function buildLayout(apiNodes: ApiGraphNode[]): Node[] {
 function buildEdges(apiEdges: ApiGraphResult["edges"], minScore: number): Edge[] {
   return apiEdges
     .filter((e) => e.weight >= minScore)
-    .map((e) => ({
-      id: `${e.source}-${e.target}`,
-      source: e.source,
-      target: e.target,
-      animated: false,
-      style: {
-        stroke: `rgba(155,123,255,${Math.min(0.8, e.weight)})`,
-        strokeWidth: Math.max(1, e.weight * 4),
-      },
-      label: e.weight.toFixed(2),
-      labelStyle: { fill: "#6B7280", fontSize: 10, fontFamily: "monospace" },
-      labelBgStyle: { fill: "transparent" },
-    }));
+    .map((e) => {
+      const positive = e.direction === "positive";
+      const strokeColor = positive
+        ? `rgba(155,123,255,${Math.min(0.85, 0.3 + e.weight * 0.6)})`
+        : `rgba(251,146,60,${Math.min(0.85, 0.3 + e.weight * 0.6)})`;
+      return {
+        id: `${e.source}-${e.target}`,
+        source: e.source,
+        target: e.target,
+        animated: false,
+        style: {
+          stroke: strokeColor,
+          strokeWidth: Math.max(1, e.weight * 4),
+        },
+        label: formatScore(e.score),
+        labelStyle: { fill: "#6B7280", fontSize: 10, fontFamily: "monospace" },
+        labelBgStyle: { fill: "transparent" },
+      };
+    });
 }
 
 function GraphInner({ graphData }: { graphData: ApiGraphResult }) {
@@ -170,6 +177,7 @@ function GraphInner({ graphData }: { graphData: ApiGraphResult }) {
         minZoom={0.3}
         maxZoom={3}
         style={{ background: "transparent" }}
+        proOptions={{ hideAttribution: true }}
       >
         <Background
           variant={BackgroundVariant.Dots}
@@ -178,6 +186,7 @@ function GraphInner({ graphData }: { graphData: ApiGraphResult }) {
           color="rgba(255,255,255,0.06)"
         />
         <Controls
+          className="exposure-graph-controls"
           style={{ background: "rgba(15,12,30,0.8)", border: "1px solid rgba(255,255,255,0.09)" }}
           showInteractive={false}
         />

@@ -76,19 +76,6 @@ export default function TwitterImage() {
         >
           Map how stocks and crypto move together
         </div>
-
-        <div
-          style={{
-            position: "absolute",
-            bottom: 40,
-            fontSize: 14,
-            color: "#4A5068",
-            letterSpacing: "2px",
-            textTransform: "uppercase",
-          }}
-        >
-          Analytical tool · Historical data only · Not financial advice
-        </div>
       </div>
     ),
     { ...size },

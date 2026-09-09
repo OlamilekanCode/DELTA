@@ -12,6 +12,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from app.config import Settings
+from app.ingestion.errors import MissingProviderKeysError
 from app.ingestion.runner import (
     _get_provider,
     ingest_asset,
@@ -24,6 +25,7 @@ from app.providers.coingecko import CoinGeckoProvider
 from app.providers.fixtures import FixtureProvider
 from app.providers.marketstack import MarketstackProvider
 from app.services.correlation import MIN_OBSERVATIONS
+from app.services.scoring import recompute_all_scores
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -78,18 +80,19 @@ def test_get_provider_real_stock_returns_marketstack() -> None:
     assert isinstance(_get_provider("stock", s), MarketstackProvider)
 
 
-def test_get_provider_missing_coingecko_key_exits() -> None:
+def test_get_provider_missing_coingecko_key_raises() -> None:
+    """A missing provider key must raise a typed exception, never sys.exit()
+    — this runs inside a long-lived server process via HTTP cron endpoints,
+    and sys.exit() would kill the whole worker instead of failing one job."""
     s = Settings(use_demo_data=False, coingecko_api_key="", marketstack_api_key="ms-key")
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(MissingProviderKeysError):
         _get_provider("crypto", s)
-    assert exc.value.code == 1
 
 
-def test_get_provider_missing_marketstack_key_exits() -> None:
+def test_get_provider_missing_marketstack_key_raises() -> None:
     s = Settings(use_demo_data=False, marketstack_api_key="", coingecko_api_key="cg-key")
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(MissingProviderKeysError):
         _get_provider("stock", s)
-    assert exc.value.code == 1
 
 
 # ── Ingestion DB persistence ─────────────────────────────────────────────────
@@ -235,13 +238,12 @@ async def test_seed_asset_catalogue_partial(db) -> None:
 
 @pytest.mark.asyncio
 async def test_missing_key_prevents_any_db_write(db) -> None:
-    """_get_provider exits with code 1 before any DB write when a required key is absent."""
+    """_get_provider raises before any DB write when a required key is absent."""
     price_count_before = (await db.execute(select(func.count()).select_from(DailyPrice))).scalar()
 
     s = Settings(use_demo_data=False, marketstack_api_key="", coingecko_api_key="cg-key")
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(MissingProviderKeysError):
         _get_provider("stock", s)
-    assert exc.value.code == 1
 
     price_count_after = (await db.execute(select(func.count()).select_from(DailyPrice))).scalar()
     assert price_count_after == price_count_before
@@ -306,6 +308,9 @@ async def test_real_mode_ingestion_then_correlation(client: AsyncClient, db, htt
 
     await ingest_asset(db, nvda, MarketstackProvider("ms-key"))
     await ingest_asset(db, btc, CoinGeckoProvider("cg-key"))
+    # /correlation now reads stored scores (never computes on request) — recompute
+    # after ingestion, matching what the scheduled historical job does in production.
+    await recompute_all_scores(db)
 
     assets_resp = await client.get("/api/v1/assets")
     assert assets_resp.status_code == 200

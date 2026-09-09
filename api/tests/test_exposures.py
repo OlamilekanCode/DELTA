@@ -1,7 +1,13 @@
 """Tests for /exposures, /graphs, and expanded /assets endpoints."""
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.exposure_score import StoredExposureScore
 
 
 @pytest.mark.asyncio
@@ -22,10 +28,10 @@ async def test_exposures_schema(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_exposures_scores_non_negative(client: AsyncClient) -> None:
+async def test_exposures_scores_are_signed(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/exposures/NVDA")
     for s in resp.json()["scores"]:
-        assert s["score"] >= 0.0
+        assert -1.0 <= s["score"] <= 1.0
 
 
 @pytest.mark.asyncio
@@ -38,6 +44,20 @@ async def test_exposures_unknown_stock_404(client: AsyncClient) -> None:
 async def test_exposures_demo_flag_true_for_fixture_data(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/exposures/NVDA")
     assert resp.json()["demo"] is True
+
+
+@pytest.mark.asyncio
+async def test_exposures_stale_reflects_data_ts_not_computed_at(client: AsyncClient, db: AsyncSession) -> None:
+    """A score recomputed "now" (computed_at fresh) but built from old
+    market data (data_ts stale) must report stale=True — recomputing
+    against unchanged old prices must never look fresh just because the
+    job happened to run."""
+    old_ts = datetime.now(UTC) - timedelta(days=60)
+    await db.execute(update(StoredExposureScore).values(computed_at=datetime.now(UTC), data_ts=old_ts))
+    await db.commit()
+
+    resp = await client.get("/api/v1/exposures/NVDA")
+    assert resp.json()["stale"] is True
 
 
 @pytest.mark.asyncio
@@ -69,6 +89,24 @@ async def test_graphs_edges_match_nodes(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_graphs_edge_direction_field(client: AsyncClient) -> None:
+    resp = await client.get("/api/v1/graphs/NVDA")
+    for edge in resp.json()["edges"]:
+        assert edge["direction"] in ("positive", "inverse")
+        assert "score" in edge
+        assert "weight" in edge
+        assert edge["weight"] == round(abs(edge["score"]), 4)
+        expected_dir = "positive" if edge["score"] >= 0 else "inverse"
+        assert edge["direction"] == expected_dir
+
+
+@pytest.mark.asyncio
+async def test_graphs_min_score_invalid_returns_422(client: AsyncClient) -> None:
+    assert (await client.get("/api/v1/graphs/NVDA?min_score=1.5")).status_code == 422
+    assert (await client.get("/api/v1/graphs/NVDA?min_score=-0.1")).status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_graphs_unknown_stock_404(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/graphs/FAKEX")
     assert resp.status_code == 404
@@ -91,10 +129,11 @@ async def test_assets_search_by_name(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_assets_search_empty_returns_all(client: AsyncClient) -> None:
+async def test_assets_search_empty_returns_free_tier_only_for_guests(client: AsyncClient) -> None:
+    """Guests must never see the full 120-asset catalogue — only the free tier."""
     resp = await client.get("/api/v1/assets/search")
     assert resp.status_code == 200
-    assert len(resp.json()["assets"]) == 38  # 8 stocks + 30 crypto
+    assert len(resp.json()["assets"]) == 38  # 8 free stocks + 30 free crypto
 
 
 @pytest.mark.asyncio

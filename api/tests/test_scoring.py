@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.asset import Asset
 from app.models.exposure_score import StoredExposureScore
 from app.models.price import DailyPrice
+from app.services import scoring as scoring_module
 from app.services.scoring import recompute_all_scores
 
 
@@ -137,3 +138,62 @@ async def test_mixed_stocks_independent_demo_flags(db: AsyncSession) -> None:
     assert all(s.is_demo for s in demo_scores), (
         "Pairs for demo stock must be demo"
     )
+
+
+@pytest.mark.asyncio
+async def test_data_quality_always_includes_crypto_daily_proxy(db: AsyncSession) -> None:
+    """crypto_daily_proxy is honest for every score today and must never be
+    dropped just because another flag also applies."""
+    n = await recompute_all_scores(db)
+    assert n > 0
+
+    scores = (await db.execute(select(StoredExposureScore))).scalars().all()
+    for s in scores:
+        assert s.data_quality is not None
+        assert "crypto_daily_proxy" in s.data_quality.split(",")
+
+
+@pytest.mark.asyncio
+async def test_recompute_all_scores_upserts_same_pair_across_reruns(db: AsyncSession) -> None:
+    """A second recompute with unchanged data must update the same stored
+    rows (upsert), not delete-then-reinsert with fresh identities."""
+    await recompute_all_scores(db)
+    first = {
+        (s.stock_id, s.crypto_id): s.id
+        for s in (await db.execute(select(StoredExposureScore))).scalars().all()
+    }
+    assert first
+
+    await recompute_all_scores(db)
+    second = {
+        (s.stock_id, s.crypto_id): s.id
+        for s in (await db.execute(select(StoredExposureScore))).scalars().all()
+    }
+    assert first == second
+
+
+@pytest.mark.asyncio
+async def test_recompute_all_scores_preserves_previous_set_on_failure(db: AsyncSession, monkeypatch) -> None:
+    """A calculation/provider failure must never leave the previous valid
+    score set partially deleted — the whole replacement set is computed in
+    memory before anything is written."""
+    await recompute_all_scores(db)
+    before = {
+        (s.stock_id, s.crypto_id): s.score
+        for s in (await db.execute(select(StoredExposureScore))).scalars().all()
+    }
+    assert before
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated provider/calculation failure")
+
+    monkeypatch.setattr(scoring_module, "compute_exposure_scores", boom)
+
+    with pytest.raises(RuntimeError):
+        await recompute_all_scores(db)
+
+    after = {
+        (s.stock_id, s.crypto_id): s.score
+        for s in (await db.execute(select(StoredExposureScore))).scalars().all()
+    }
+    assert after == before

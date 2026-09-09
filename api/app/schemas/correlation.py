@@ -10,6 +10,8 @@ class ExposureScoreOut(BaseModel):
     score: float
     raw_correlation: float
     observations: int
+    data_quality: str | None = None
+    data_ts: str | None = None
 
 
 class PriceSeriesPoint(BaseModel):

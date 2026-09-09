@@ -34,8 +34,16 @@ export function fetchAsset(symbol: string): Promise<ApiAsset> {
   return apiFetch<ApiAsset>(`/api/v1/assets/${symbol}`, { next: { revalidate: 300 } });
 }
 
-export function fetchAssetHistory(symbol: string, days = 90): Promise<ApiAssetHistoryOut> {
-  return apiFetch<ApiAssetHistoryOut>(`/api/v1/assets/${symbol}/history?days=${days}`, {
+export type ChartRange = "4H" | "1D" | "1W" | "1M" | "3M" | "1Y";
+
+export function fetchAssetHistory(
+  symbol: string,
+  opts: { days?: number; range?: ChartRange } = {}
+): Promise<ApiAssetHistoryOut> {
+  const params = new URLSearchParams();
+  if (opts.range) params.set("range", opts.range);
+  else params.set("days", String(opts.days ?? 90));
+  return apiFetch<ApiAssetHistoryOut>(`/api/v1/assets/${symbol}/history?${params}`, {
     next: { revalidate: 3600 },
   });
 }

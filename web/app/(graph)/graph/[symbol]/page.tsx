@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { fetchGraph } from "@/lib/api";
+import { ApiRequestError, fetchGraphAuthed } from "@/lib/server-api";
 import type { ApiGraphResult } from "@/lib/types";
 import FreshnessLabel from "@/components/shared/FreshnessLabel";
 import ExposureGraphCanvasClient from "@/components/graph/ExposureGraphCanvasClient";
@@ -22,11 +22,15 @@ export default async function GraphPage({ params }: Props) {
   const sym = symbol.toUpperCase();
 
   let graphData: ApiGraphResult | null = null;
+  let accessError: 401 | 403 | null = null;
 
   try {
-    graphData = await fetchGraph(sym);
-  } catch {
-    // API unavailable — render empty graph
+    graphData = await fetchGraphAuthed(sym);
+  } catch (err) {
+    if (err instanceof ApiRequestError && (err.status === 401 || err.status === 403)) {
+      accessError = err.status;
+    }
+    // otherwise: API unavailable — render empty graph
   }
 
   return (
@@ -67,7 +71,20 @@ export default async function GraphPage({ params }: Props) {
 
       {/* Graph canvas */}
       <div className="relative flex-1 overflow-hidden bg-bg">
-        {graphData && graphData.nodes.length === 0 ? (
+        {accessError ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center">
+              <p className="font-mono text-sm text-muted">
+                {accessError === 401
+                  ? "Sign in with a wallet to check access to this graph."
+                  : `${sym} is part of the extended $SynthEx holder catalogue.`}
+              </p>
+              <Link href="/explore" className="mt-2 inline-block font-mono text-xs text-violet-light hover:underline">
+                Back to Explore
+              </Link>
+            </div>
+          </div>
+        ) : graphData && graphData.nodes.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
               <p className="font-mono text-sm text-muted">No Exposure Scores computed yet.</p>

@@ -75,3 +75,5 @@ cloudflare/.wrangler/
 DELTA_MVP_BLUEPRINT.md
 .claude/
 AGENTS.md
+CLAUDE.md
+IMPLEMENTATION_REPORT.md

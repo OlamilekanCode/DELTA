@@ -7,23 +7,45 @@ from fastapi.middleware.cors import CORSMiddleware
 import app.models  # noqa: F401 — register all ORM models with Base
 from app.config import get_settings
 from app.database import Base, get_engine, init_db
-from app.routers import assets, correlation, cron, exposures, graphs, health
+from app.routers import (
+    assets,
+    auth,
+    correlation,
+    cron,
+    entitlements,
+    exposures,
+    graphs,
+    health,
+    intraday,
+    market_status,
+    portfolio,
+)
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
+    if settings.app_env == "production" and not settings.has_strong_session_secret:
+        raise RuntimeError(
+            "SESSION_SECRET must be set to a strong random value (32+ chars, not the default) "
+            "in production — it HMAC-signs stored session-token hashes."
+        )
     init_db(settings.database_url)
 
-    async with get_engine().begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Schema management: SQLite (dev/test) creates tables directly since it
+    # has no separate migration deployment step; PostgreSQL (production)
+    # relies exclusively on Alembic — see `alembic upgrade head`.
+    if get_engine().dialect.name != "postgresql":
+        async with get_engine().begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
     if settings.use_demo_data:
         from sqlalchemy import func, select
 
         from app.database import get_factory
-        from app.ingestion.runner import seed_fixture_data
+        from app.ingestion.runner import seed_fixture_data, seed_fixture_intraday_data
         from app.models.exposure_score import StoredExposureScore
+        from app.models.intraday_exposure_score import IntradayExposureScore
         from app.services.scoring import recompute_all_scores
 
         async with get_factory()() as db:
@@ -36,6 +58,12 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
             if (count_result.scalar() or 0) == 0:
                 await recompute_all_scores(db)
 
+            intraday_count_result = await db.execute(
+                select(func.count()).select_from(IntradayExposureScore)
+            )
+            if (intraday_count_result.scalar() or 0) == 0:
+                await seed_fixture_intraday_data(db)
+
     yield
 
     await get_engine().dispose()
@@ -44,7 +72,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
-        title="DELTA — Synthetic Exposure API",
+        title="Synthetic Exposure API",
         version="3.0.0",
         description="Stock ↔ Crypto Exposure Layer",
         lifespan=lifespan,
@@ -64,6 +92,11 @@ def create_app() -> FastAPI:
     application.include_router(exposures.router, prefix="/api/v1")
     application.include_router(graphs.router, prefix="/api/v1")
     application.include_router(cron.router, prefix="/api/v1")
+    application.include_router(market_status.router, prefix="/api/v1")
+    application.include_router(intraday.router, prefix="/api/v1")
+    application.include_router(auth.router, prefix="/api/v1")
+    application.include_router(portfolio.router, prefix="/api/v1")
+    application.include_router(entitlements.router, prefix="/api/v1")
 
     return application
 

@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { motion, useReducedMotion } from "framer-motion";
 import DemoDataBadge from "@/components/shared/DemoDataBadge";
 import type { ExposureScore, PricePoint } from "@/lib/types";
+import { formatScore } from "@/lib/format";
 
 const NVDAChart = dynamic(() => import("./NVDAChart"), {
   ssr: false,
@@ -27,15 +28,19 @@ const CATEGORY_COLORS: Record<string, { text: string; bg: string; border: string
   "AI":            { text: "#71F79F", bg: "rgba(113,247,159,0.08)", border: "rgba(113,247,159,0.25)" },
 };
 
-function ScoreBar({ value, color }: { value: number; color: string }) {
+const SCORE_POS_COLOR = "#9B7BFF";
+const SCORE_INV_COLOR = "#FB923C";
+
+function ScoreBar({ score }: { score: number }) {
   const reduced = useReducedMotion();
+  const barColor = score >= 0 ? SCORE_POS_COLOR : SCORE_INV_COLOR;
   return (
     <div className="h-1 w-full overflow-hidden rounded-full bg-panel2" role="presentation">
       <motion.div
         className="h-full rounded-full"
-        style={{ background: color }}
+        style={{ background: barColor }}
         initial={{ width: 0 }}
-        whileInView={{ width: `${value * 100}%` }}
+        whileInView={{ width: `${Math.abs(score) * 100}%` }}
         viewport={{ once: true }}
         transition={reduced ? { duration: 0 } : { duration: 1, delay: 0.3, ease: "easeOut" }}
       />
@@ -142,7 +147,7 @@ export default function NVDAExampleClient({ scores, chartData, isDemo }: Props) 
                   viewport={{ once: true }}
                   transition={{ duration: 0.5, delay: 0.2 + i * 0.08, ease: "backOut" }}
                 >
-                  {s.score.toFixed(2)}
+                  {formatScore(s.score)}
                 </motion.span>
                 <span className="font-mono text-sm font-medium text-text sm:text-base">{s.symbol}</span>
                 <span
@@ -231,11 +236,11 @@ export default function NVDAExampleClient({ scores, chartData, isDemo }: Props) 
                           {s.category}
                         </span>
                       </div>
-                      <span className="font-mono text-sm font-bold" style={{ color: cat.text }}>
-                        {s.score.toFixed(2)}
+                      <span className="font-mono text-sm font-bold" style={{ color: s.score >= 0 ? SCORE_POS_COLOR : SCORE_INV_COLOR }}>
+                        {formatScore(s.score)}
                       </span>
                     </div>
-                    <ScoreBar value={s.score} color={cat.text} />
+                    <ScoreBar score={s.score} />
                     <p className="mt-1.5 font-mono text-xs text-muted">
                       {s.observations} observations
                     </p>

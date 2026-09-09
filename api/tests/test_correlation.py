@@ -35,6 +35,14 @@ def test_pearson_r_perfect_correlation() -> None:
     assert n == 49
 
 
+def test_pearson_r_perfect_inverse_correlation() -> None:
+    xs = list(range(1, 50))
+    ys = [-x * 2.0 for x in xs]
+    r, n = pearson_r(xs, ys)
+    assert math.isclose(r, -1.0, abs_tol=1e-9)
+    assert n == 49
+
+
 def test_pearson_r_insufficient_observations() -> None:
     xs = list(range(1, 10))  # only 9 — below MIN_OBSERVATIONS
     ys = list(range(1, 10))
@@ -131,6 +139,80 @@ def test_insufficient_aligned_observations_excluded() -> None:
     assert len(results2) == 1
 
 
+def _alternating_prices(start: float, up: float, down: float, n: int) -> list[float]:
+    """Prices that oscillate up/down each step, producing alternating log returns."""
+    prices = [start]
+    for i in range(n):
+        prices.append(prices[-1] * (up if i % 2 == 0 else down))
+    return prices
+
+
+def test_compute_scores_negative_correlation() -> None:
+    """Alternating-opposite price series must produce a score near −1.0."""
+    from datetime import date, timedelta
+
+    n = MIN_OBSERVATIONS + 10  # number of log-return pairs
+    dates = [(date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(n + 1)]
+    # Stock: up 1% then down 0.5% each pair
+    stock_prices = _alternating_prices(100.0, 1.01, 0.995, n)
+    # Crypto: exactly opposite — down 1% then up 0.5%
+    crypto_prices = _alternating_prices(200.0, 0.99, 1.005, n)
+
+    stock = [PricePoint(date=d, close=stock_prices[i]) for i, d in enumerate(dates)]
+    crypto = [PricePoint(date=d, close=crypto_prices[i]) for i, d in enumerate(dates)]
+
+    results = compute_exposure_scores(stock, {"BTC": ("Bitcoin", "Layer 1", crypto)})
+    assert len(results) == 1
+    assert results[0].score < -0.9, f"expected strong negative score, got {results[0].score}"
+
+
+def test_compute_scores_negative_not_clamped() -> None:
+    """Negative-correlation score must appear in output with its sign preserved."""
+    from datetime import date, timedelta
+
+    n = MIN_OBSERVATIONS + 5
+    dates = [(date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(n + 1)]
+
+    # Stock alternates up/down; crypto alternates opposite → negative Pearson r
+    stock_prices = _alternating_prices(50.0, 1.01, 0.995, n)
+    inv_c_prices = _alternating_prices(200.0, 0.99, 1.005, n)
+
+    stock = [PricePoint(date=d, close=stock_prices[i]) for i, d in enumerate(dates)]
+    inv_crypto = [PricePoint(date=d, close=inv_c_prices[i]) for i, d in enumerate(dates)]
+
+    results = compute_exposure_scores(stock, {
+        "BTC": ("Bitcoin", "Layer 1", inv_crypto),
+    })
+    assert len(results) == 1
+    # Score must be negative — no positive clamp applied
+    assert results[0].score < 0, f"expected negative score, got {results[0].score}"
+
+
+def test_compute_scores_sorted_by_abs_magnitude() -> None:
+    """Mixed positive and inverse scores must be sorted by |score| descending."""
+    from datetime import date, timedelta
+
+    n = MIN_OBSERVATIONS + 20
+    dates = [(date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(n + 1)]
+
+    # All series are monotone rising: log returns are all positive and nearly identical.
+    # Add mild noise to separate them in magnitude while keeping directions clear.
+    stock_prices = _alternating_prices(50.0, 1.01, 0.995, n)   # alternating
+    strong_inv_prices = _alternating_prices(200.0, 0.99, 1.005, n)  # opposite to stock → r ≈ −1
+    weak_inv_prices = _alternating_prices(200.0, 0.995, 1.002, n)   # weaker opposite → |r| < 1
+    pos_prices = _alternating_prices(100.0, 1.01, 0.995, n)          # same as stock → r ≈ +1
+
+    stock = [PricePoint(date=d, close=stock_prices[i]) for i, d in enumerate(dates)]
+    results = compute_exposure_scores(stock, {
+        "A": ("Asset A", "Layer 1", [PricePoint(date=d, close=pos_prices[i]) for i, d in enumerate(dates)]),
+        "B": ("Asset B", "Layer 1", [PricePoint(date=d, close=strong_inv_prices[i]) for i, d in enumerate(dates)]),
+        "C": ("Asset C", "Layer 1", [PricePoint(date=d, close=weak_inv_prices[i]) for i, d in enumerate(dates)]),
+    })
+    assert len(results) == 3
+    magnitudes = [abs(r.score) for r in results]
+    assert magnitudes == sorted(magnitudes, reverse=True)
+
+
 def test_compute_scores_with_missing_dates() -> None:
     # Both series share dates except one gap in the middle for crypto
     stock = [PricePoint(f"2026-01-{d:02d}", float(100 + d)) for d in range(1, 60)]
@@ -164,10 +246,29 @@ async def test_correlation_endpoint_schema(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_correlation_scores_are_non_negative(client: AsyncClient) -> None:
+async def test_correlation_endpoint_scores_allow_negative(client: AsyncClient) -> None:
+    """API schema must not reject negative scores — no positive clamp in serialiser."""
     r = await client.get("/api/v1/correlation/NVDA")
-    for score in r.json()["scores"]:
-        assert score["score"] >= 0.0
+    scores = [s["score"] for s in r.json()["scores"]]
+    # All scores must be in the signed Pearson range [−1, +1].
+    # The absence of negative values here reflects fixture data, not a clamp.
+    assert all(-1.0 <= s <= 1.0 for s in scores)
+
+
+@pytest.mark.asyncio
+async def test_correlation_scores_are_signed(client: AsyncClient) -> None:
+    r = await client.get("/api/v1/correlation/NVDA")
+    scores = r.json()["scores"]
+    for s in scores:
+        assert -1.0 <= s["score"] <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_correlation_scores_sorted_by_magnitude(client: AsyncClient) -> None:
+    r = await client.get("/api/v1/correlation/NVDA")
+    scores = [s["score"] for s in r.json()["scores"]]
+    magnitudes = [abs(s) for s in scores]
+    assert magnitudes == sorted(magnitudes, reverse=True)
 
 
 @pytest.mark.asyncio

@@ -35,7 +35,7 @@ export default function OGImage() {
           }}
         />
 
-        {/* Delta triangle SVG */}
+        {/* Brand mark triangle SVG */}
         <svg width="120" height="120" viewBox="0 0 32 32">
           <defs>
             <linearGradient id="dg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -91,20 +91,6 @@ export default function OGImage() {
           }}
         >
           Map how stocks and crypto move together
-        </div>
-
-        {/* Disclaimer */}
-        <div
-          style={{
-            position: "absolute",
-            bottom: 40,
-            fontSize: 14,
-            color: "#4A5068",
-            letterSpacing: "2px",
-            textTransform: "uppercase",
-          }}
-        >
-          Analytical tool · Historical data only · Not financial advice
         </div>
       </div>
     ),

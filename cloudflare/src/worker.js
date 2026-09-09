@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker — DELTA cron dispatcher
+ * Cloudflare Worker — Synthetic Exposure cron dispatcher
  *
  * Receives Cloudflare Cron Trigger events and forwards them to the
  * protected Render API endpoints with the X-Cron-Secret header.
@@ -11,6 +11,15 @@
  * Deploy:
  *   npx wrangler deploy
  */
+
+// Cron expression -> backend endpoint. Must stay in sync with the `crons`
+// list in wrangler.toml — three distinct job types, each independently
+// scheduled (see cloudflare/wrangler.toml for rationale).
+const ROUTES = {
+  "*/5 * * * *": "/api/v1/cron/refresh-crypto-quotes",
+  "2,32 * * * *": "/api/v1/cron/refresh-intraday",
+  "0 23 * * 2,5": "/api/v1/cron/refresh-history-and-scores",
+};
 
 export default {
   /**
@@ -27,11 +36,14 @@ export default {
       return;
     }
 
-    // Route by cron expression
-    const endpoint =
-      event.cron === "*/5 * * * *"
-        ? "/api/v1/cron/refresh-crypto-quotes"
-        : "/api/v1/cron/refresh-history-and-scores";
+    const endpoint = ROUTES[event.cron];
+    if (!endpoint) {
+      // Never silently fall back to a different job — an unrecognized
+      // schedule string (e.g. a wrangler.toml edit without a matching
+      // ROUTES entry) is a config bug that must be visible, not masked.
+      console.error(`Unrecognized cron schedule "${event.cron}" — no route configured, skipping`);
+      return;
+    }
 
     ctx.waitUntil(dispatch(base, endpoint, secret));
   },
@@ -47,13 +59,19 @@ async function dispatch(base, endpoint, secret) {
     });
   } catch (err) {
     console.error(`${endpoint}: network error —`, err.message);
-    return;
+    // Re-throw so the promise passed to ctx.waitUntil() rejects — Cloudflare
+    // only marks a scheduled invocation as failed (visible in the dashboard
+    // and wrangler tail) when the handler actually throws, never from a log
+    // line alone.
+    throw err;
   }
 
   const body = await resp.text();
   if (resp.ok) {
     console.log(`${endpoint}: ${resp.status} ${body}`);
-  } else {
-    console.error(`${endpoint}: ${resp.status} ${body}`);
+    return;
   }
+
+  console.error(`${endpoint}: ${resp.status} ${body}`);
+  throw new Error(`${endpoint} failed with status ${resp.status}: ${body}`);
 }

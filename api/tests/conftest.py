@@ -1,6 +1,12 @@
 import os
 
-# Set env vars before any app module imports so lru_cached get_settings() picks them up
+# Set env vars before any app module imports so lru_cached get_settings() picks them up.
+# APP_ENV in particular must never fall through to a developer's local .env
+# file here — Settings(**overrides) in individual tests still reads it for
+# any field the test doesn't explicitly override, and a stray
+# APP_ENV=production in .env must never silently make the suite believe it's
+# running in production (e.g. tripping production-only fail-closed checks).
+os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 os.environ.setdefault("USE_DEMO_DATA", "true")
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000")
@@ -43,6 +49,17 @@ async def db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """The auth rate limiter is in-process global state — reset it between
+    tests so one test's request volume can't trip another's limit."""
+    from app.services.rate_limit import reset_rate_limits
+
+    reset_rate_limits()
+    yield
+    reset_rate_limits()
 
 
 @pytest.fixture()

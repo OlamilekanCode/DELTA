@@ -1,4 +1,4 @@
-# DELTA — Synthetic Exposure API
+# Synthetic Exposure API
 
 FastAPI backend providing asset data, price history, and stock↔crypto Exposure Scores.
 
@@ -40,7 +40,7 @@ With `USE_DEMO_DATA=true` (default), the server seeds deterministic fixture data
 # Apply all pending migrations
 alembic upgrade head
 
-# Downgrade one step (for testing)
+# Downgrade one step — local/disposable databases only, never production
 alembic downgrade -1
 
 # Create a new migration after model changes
@@ -50,23 +50,14 @@ alembic revision --autogenerate -m "description"
 ## Data ingestion commands
 
 ```bash
-# Initial 90-day backfill for all 38 assets
-python -m app.ingestion.commands backfill
-
-# Refresh current crypto prices via CoinGecko /coins/markets (1 request, all 30 crypto)
-python -m app.ingestion.commands refresh-crypto-quotes
-
-# Refresh 90-day OHLCV history for all 30 crypto assets
-python -m app.ingestion.commands refresh-crypto-history
-
-# Refresh stock EOD prices via Marketstack (weekdays only)
-python -m app.ingestion.commands refresh-stock-eod
-
-# Recompute and store Exposure Scores for all stock × crypto pairs
+python -m app.ingestion.commands backfill              # initial 365-day backfill, all assets (recurring refreshes stay at 90 days)
+python -m app.ingestion.commands refresh-crypto-quotes  # 1 CoinGecko batch request, all crypto
+python -m app.ingestion.commands refresh-crypto-history  # no CoinGecko batch endpoint for history — one request per crypto asset, bounded concurrency
+python -m app.ingestion.commands refresh-stock-eod       # weekdays only
+python -m app.ingestion.commands refresh-intraday        # batched Marketstack + stored crypto observations
 python -m app.ingestion.commands recompute-scores
-
-# Combined: stock EOD + crypto history + score recomputation
-python -m app.ingestion.commands refresh-all
+python -m app.ingestion.commands refresh-all             # stock EOD + crypto history + scores + cleanup
+python -m app.ingestion.commands cleanup-old-data
 ```
 
 With `USE_DEMO_DATA=false`, both `MARKETSTACK_API_KEY` and `COINGECKO_API_KEY` must be set. Commands exit with a clear error if either key is missing.
@@ -75,20 +66,21 @@ All commands are idempotent. On provider failure, existing stored data is preser
 
 ## Protected cron endpoints
 
-Two HTTP endpoints are used by the Cloudflare Cron scheduler. Every request must include the header `X-Cron-Secret: <CRON_SECRET>`.
+Three HTTP endpoints are used by the Cloudflare Cron scheduler (see `cloudflare/`). Every request must include `X-Cron-Secret: <CRON_SECRET>`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/v1/cron/refresh-crypto-quotes` | Current crypto prices — every 5 minutes |
-| `POST` | `/api/v1/cron/refresh-history-and-scores` | OHLCV history + score recompute — Tuesday and Friday |
+| `POST` | `/api/v1/cron/refresh-crypto-quotes` | Current crypto prices + observations — every 5 minutes |
+| `POST` | `/api/v1/cron/refresh-intraday` | 30-min candles + live Exposure Scores — 2 and 32 minutes past each hour |
+| `POST` | `/api/v1/cron/refresh-history-and-scores` | History + historical scores + retention cleanup — Tuesday and Friday |
 
 Responses:
 ```json
-{ "ok": true, "command": "refresh-crypto-quotes" }
+{ "ok": true, "command": "refresh-crypto-quotes", "counts": { "requested": 30, "succeeded": 30, "skipped": 0, "failed": 0 } }
 { "ok": false, "skipped": true, "message": "Job is already running on another instance" }
 ```
 
-Returns `401 Unauthorized` if the secret is missing or incorrect.
+Returns `401 Unauthorized` if the secret is missing or incorrect. A genuine failure (every provider call failed) returns a non-2xx status, never `200` with `ok: false`.
 
 ## Running tests
 
@@ -107,18 +99,16 @@ ruff check . --fix   # auto-fix import ordering and unused imports
 
 ## API endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/v1/health` | Service health |
-| `GET` | `/api/v1/assets` | All assets, optional `?type=stock\|crypto` |
-| `GET` | `/api/v1/assets/search` | Search by `?q=` and optional `?type=` |
-| `GET` | `/api/v1/assets/{symbol}` | Single asset with latest price |
-| `GET` | `/api/v1/assets/{symbol}/history` | Daily price history, `?days=7–365` |
-| `GET` | `/api/v1/correlation/{symbol}` | Pearson scores for a stock vs all crypto |
-| `GET` | `/api/v1/exposures/{symbol}` | Stored Exposure Scores for a stock |
-| `GET` | `/api/v1/graphs/{symbol}` | Graph nodes and edges for the Exposure Graph |
-| `POST` | `/api/v1/cron/refresh-crypto-quotes` | Trigger crypto quote refresh (requires `X-Cron-Secret`) |
-| `POST` | `/api/v1/cron/refresh-history-and-scores` | Trigger history + score refresh (requires `X-Cron-Secret`) |
+See `docs/api.md` for full request/response shapes, the access model (guest vs. verified holder), and error codes. Summary:
+
+| Method | Path | Access |
+|--------|------|--------|
+| `GET` | `/api/v1/assets`, `/assets/search`, `/assets/{symbol}`, `/assets/{symbol}/history` | Filtered to caller's tier; `401`/`403` for a holder-only symbol |
+| `GET` | `/api/v1/exposures/{symbol}`, `/graphs/{symbol}`, `/correlation/{symbol}` (deprecated alias), `/intraday/{symbol}` | Stored scores only — never computed on request |
+| `GET` | `/api/v1/market-status` | Public |
+| `POST` | `/api/v1/auth/nonce`, `/auth/verify` · `GET /auth/session` · `POST /auth/logout` | SIWE authentication |
+| `GET`/`POST` | `/api/v1/entitlements/*`, `/portfolio/*` | Requires an authenticated session |
+| `POST` | `/api/v1/cron/*` | Requires `X-Cron-Secret` |
 
 ## Deployment (Render)
 
@@ -134,11 +124,12 @@ Set all secrets in Render's environment panel. Never commit `.env` files with re
 
 ### Scheduler — Cloudflare Cron
 
-Configure two HTTP triggers pointing at the Render URL:
+Deployed from `cloudflare/` (see its `wrangler.toml`) — three triggers pointing at the Render URL:
 
-| Schedule | Endpoint | Header |
-|----------|----------|--------|
-| Every 5 minutes | `POST /api/v1/cron/refresh-crypto-quotes` | `X-Cron-Secret: <value>` |
-| Tuesday + Friday | `POST /api/v1/cron/refresh-history-and-scores` | `X-Cron-Secret: <value>` |
+| Schedule | Endpoint |
+|----------|----------|
+| Every 5 minutes | `POST /api/v1/cron/refresh-crypto-quotes` |
+| 2, 32 minutes past each hour | `POST /api/v1/cron/refresh-intraday` |
+| Tuesday + Friday, 23:00 UTC | `POST /api/v1/cron/refresh-history-and-scores` |
 
-Set the same `CRON_SECRET` value in both the Render environment and the Cloudflare Cron HTTP trigger header.
+Set the same `CRON_SECRET` value in both the Render environment and the Cloudflare Worker secret.

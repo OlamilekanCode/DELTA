@@ -1,4 +1,4 @@
-"""Tests for the full 8-stock + 30-crypto asset catalogue."""
+"""Tests for the full 20-stock + 100-crypto asset catalogue (free + holder tiers)."""
 
 from datetime import date, timedelta
 
@@ -6,8 +6,12 @@ import pytest
 
 from app.providers.fixtures import FIXTURE_ASSETS, FixtureProvider
 
-EXPECTED_STOCKS = {"NVDA", "TSLA", "COIN", "MSTR", "AMD", "MSFT", "META", "PLTR"}
-EXPECTED_CRYPTO = {
+EXPECTED_FREE_STOCKS = {"NVDA", "TSLA", "COIN", "MSTR", "AMD", "MSFT", "META", "PLTR"}
+EXPECTED_HOLDER_STOCKS = {
+    "AMZN", "GOOGL", "AAPL", "INTC", "QCOM", "MU", "SMCI", "HOOD",
+    "RIOT", "MARA", "CLSK", "WULF",
+}
+EXPECTED_FREE_CRYPTO = {
     "BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "AVAX", "DOT", "NEAR", "ICP",
     "APT", "SUI", "HBAR", "ARB", "OP", "POL", "UNI", "AAVE", "INJ", "LINK",
     "GRT", "TAO", "RENDER", "FET", "AKT", "AIOZ", "FIL", "AR", "DOGE", "PEPE",
@@ -15,20 +19,43 @@ EXPECTED_CRYPTO = {
 VALID_CATEGORIES = {
     "Layer 1", "Layer 2", "DeFi", "Oracle/Data",
     "AI/Compute", "Storage", "Memecoin", "Technology", "Finance",
+    "Crypto Mining", "GameFi", "RWA", "Interoperability", "Privacy",
+    "Exchange", "Liquid Staking",
 }
 STABLECOINS = {"USDT", "USDC", "DAI", "BUSD", "TUSD", "USDE", "FRAX"}
 
 
-def test_fixture_has_8_stocks() -> None:
+def test_fixture_has_20_stocks() -> None:
     stocks = [a for a in FIXTURE_ASSETS if a["asset_type"] == "stock"]
-    assert len(stocks) == 8
-    assert {a["symbol"] for a in stocks} == EXPECTED_STOCKS
+    assert len(stocks) == 20
+    assert {a["symbol"] for a in stocks} == EXPECTED_FREE_STOCKS | EXPECTED_HOLDER_STOCKS
 
 
-def test_fixture_has_30_crypto() -> None:
+def test_fixture_has_100_crypto() -> None:
     crypto = [a for a in FIXTURE_ASSETS if a["asset_type"] == "crypto"]
-    assert len(crypto) == 30
-    assert {a["symbol"] for a in crypto} == EXPECTED_CRYPTO
+    assert len(crypto) == 100
+
+
+def test_free_tier_is_8_stocks_and_30_crypto() -> None:
+    free = [a for a in FIXTURE_ASSETS if a["access"] == "free"]
+    free_stocks = {a["symbol"] for a in free if a["asset_type"] == "stock"}
+    free_crypto = {a["symbol"] for a in free if a["asset_type"] == "crypto"}
+    assert free_stocks == EXPECTED_FREE_STOCKS
+    assert free_crypto == EXPECTED_FREE_CRYPTO
+
+
+def test_holder_tier_is_12_stocks_and_70_crypto() -> None:
+    holder = [a for a in FIXTURE_ASSETS if a["access"] == "holder"]
+    holder_stocks = [a for a in holder if a["asset_type"] == "stock"]
+    holder_crypto = [a for a in holder if a["asset_type"] == "crypto"]
+    assert len(holder_stocks) == 12
+    assert len(holder_crypto) == 70
+    assert {a["symbol"] for a in holder_stocks} == EXPECTED_HOLDER_STOCKS
+
+
+def test_every_asset_has_valid_access() -> None:
+    for a in FIXTURE_ASSETS:
+        assert a["access"] in ("free", "holder"), f"{a['symbol']} has invalid access {a['access']!r}"
 
 
 def test_all_crypto_have_coingecko_id() -> None:

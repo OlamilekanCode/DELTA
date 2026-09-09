@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import type { ApiAsset } from "@/lib/types";
 
 const CATEGORY_COLORS: Record<string, { text: string; bg: string; border: string }> = {
@@ -209,8 +209,6 @@ export default function AssetGrid({ assets }: AssetGridProps) {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [page, setPage] = useState(1);
 
-  useEffect(() => { setPage(1); }, [query, typeFilter, categoryFilter]);
-
   const categories = useMemo(() => {
     const all = new Set(assets.map((a) => a.category));
     return ["all", ...Array.from(all).sort()];
@@ -246,7 +244,7 @@ export default function AssetGrid({ assets }: AssetGridProps) {
             type="search"
             placeholder="Search by name or symbol…"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => { setQuery(e.target.value); setPage(1); }}
             className="w-full rounded-xl border border-white/[0.09] bg-panel py-3 pl-9 pr-4 font-mono text-sm text-text placeholder:text-muted/60 focus:border-violet/50 focus:outline-none"
           />
         </div>
@@ -255,7 +253,7 @@ export default function AssetGrid({ assets }: AssetGridProps) {
           {(["all", "stock", "crypto"] as TypeFilter[]).map((t) => (
             <button
               key={t}
-              onClick={() => setTypeFilter(t)}
+              onClick={() => { setTypeFilter(t); setPage(1); }}
               className={`rounded-lg border px-4 py-2.5 font-mono text-sm capitalize transition-colors ${
                 typeFilter === t
                   ? "border-violet/50 bg-violet/10 text-violet-light"
@@ -273,7 +271,7 @@ export default function AssetGrid({ assets }: AssetGridProps) {
         {categories.map((cat) => (
           <button
             key={cat}
-            onClick={() => setCategoryFilter(cat)}
+            onClick={() => { setCategoryFilter(cat); setPage(1); }}
             className={`rounded-full border px-3.5 py-1.5 font-mono text-xs font-medium transition-colors ${
               categoryFilter === cat
                 ? "border-violet/50 bg-violet/10 text-violet-light"

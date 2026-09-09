@@ -1,11 +1,16 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.providers.base import PriceRow, ProviderError, QuoteRow
+from app.services.provider_usage import log_provider_call
+
+if TYPE_CHECKING:
+    from app.services.intraday import IntradayObservation
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +40,7 @@ class CoinGeckoProvider:
         reraise=True,
     )
     async def fetch_ohlcv(self, coingecko_id: str, days: int) -> list[PriceRow]:
+        log_provider_call("coingecko", "market_chart", coins=1, days=days)
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
                 f"{self.base}/coins/{coingecko_id}/market_chart",
@@ -69,6 +75,7 @@ class CoinGeckoProvider:
     )
     async def fetch_quotes_batch(self, coingecko_ids: list[str]) -> list[QuoteRow]:
         """Fetch current prices for up to 250 coins in one request."""
+        log_provider_call("coingecko", "markets_batch", coins=len(coingecko_ids))
         ids_str = ",".join(coingecko_ids[:_MAX_BATCH])
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
@@ -103,3 +110,40 @@ class CoinGeckoProvider:
                 ts=now,
             ))
         return rows
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception_type((ProviderError, httpx.TransportError)),
+        reraise=True,
+    )
+    async def fetch_intraday(self, coingecko_id: str) -> list["IntradayObservation"]:
+        """CoinGecko's market_chart?days=1 returns ~5-minutely samples, which the
+        caller buckets into 30-min candles via build_30min_candles()."""
+        from app.services.intraday import IntradayObservation
+
+        log_provider_call("coingecko", "market_chart_intraday", coins=1)
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f"{self.base}/coins/{coingecko_id}/market_chart",
+                params={"vs_currency": "usd", "days": 1},
+                headers=self._headers,
+            )
+
+        if r.status_code == 429:
+            raise ProviderError(429, "CoinGecko rate limited on intraday")
+
+        if r.status_code != 200:
+            raise ProviderError(r.status_code, f"CoinGecko intraday error {r.status_code}")
+
+        data: dict = r.json()
+        observations: list[IntradayObservation] = []
+        for ts, price in data.get("prices", []):
+            if price is None or price <= 0:
+                continue
+            observations.append(IntradayObservation(
+                ts=datetime.fromtimestamp(ts / 1000, tz=timezone.utc),
+                price=round(price, 8),
+            ))
+        return observations

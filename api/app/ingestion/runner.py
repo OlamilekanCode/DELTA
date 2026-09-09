@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.database import get_engine, get_factory, init_db
+from app.ingestion.errors import MissingProviderKeysError
 from app.models.asset import Asset
 from app.models.price import DailyPrice
 from app.models.quote import AssetQuote
@@ -28,12 +29,14 @@ def _get_provider(asset_type: str, settings: Settings) -> ProviderProtocol:
         return FixtureProvider()
     if asset_type == "stock":
         if not settings.marketstack_api_key:
-            log.error("MARKETSTACK_API_KEY is required when USE_DEMO_DATA=false")
-            sys.exit(1)
+            message = "MARKETSTACK_API_KEY is required when USE_DEMO_DATA=false"
+            log.error(message)
+            raise MissingProviderKeysError(message)
         return MarketstackProvider(settings.marketstack_api_key)
     if not settings.coingecko_api_key:
-        log.error("COINGECKO_API_KEY is required when USE_DEMO_DATA=false")
-        sys.exit(1)
+        message = "COINGECKO_API_KEY is required when USE_DEMO_DATA=false"
+        log.error(message)
+        raise MissingProviderKeysError(message)
     return CoinGeckoProvider(settings.coingecko_api_key, settings.coingecko_api_type)
 
 
@@ -62,6 +65,7 @@ async def _upsert_prices(
         if r.date in existing_by_date:
             rec = existing_by_date[r.date]
             rec.close = r.close
+            rec.adj_close = r.adj_close
             rec.volume = r.volume
             rec.is_demo = is_demo
         else:
@@ -70,6 +74,7 @@ async def _upsert_prices(
                     asset_id=asset_id,
                     date=r.date,
                     close=r.close,
+                    adj_close=r.adj_close,
                     volume=r.volume,
                     is_demo=is_demo,
                 )
@@ -158,6 +163,7 @@ async def seed_asset_catalogue(db: AsyncSession) -> None:
                 name=asset_data["name"],
                 asset_type=asset_data["asset_type"],
                 category=asset_data["category"],
+                access=asset_data.get("access", "free"),
                 coingecko_id=asset_data.get("coingecko_id"),
                 updated_at=datetime.now(UTC),
             )
@@ -166,7 +172,7 @@ async def seed_asset_catalogue(db: AsyncSession) -> None:
 
 
 async def ingest_asset(
-    db: AsyncSession, asset: Asset, provider: ProviderProtocol
+    db: AsyncSession, asset: Asset, provider: ProviderProtocol, days: int = 90
 ) -> int:
     key = (
         asset.coingecko_id
@@ -174,7 +180,7 @@ async def ingest_asset(
         else asset.symbol
     )
     is_demo = isinstance(provider, FixtureProvider)
-    rows: list[PriceRow] = await provider.fetch_ohlcv(key, 90)
+    rows: list[PriceRow] = await provider.fetch_ohlcv(key, days)
     n = await _upsert_prices(db, asset.id, rows, is_demo=is_demo)
     asset.updated_at = datetime.now(UTC)
     await db.commit()
@@ -195,13 +201,14 @@ async def seed_fixture_data(db: AsyncSession) -> None:
                 name=asset_data["name"],
                 asset_type=asset_data["asset_type"],
                 category=asset_data["category"],
+                access=asset_data.get("access", "free"),
                 coingecko_id=asset_data.get("coingecko_id"),
                 updated_at=now,
             )
             db.add(asset)
             await db.flush()
 
-        rows = await provider.fetch_ohlcv(asset.symbol, 90)
+        rows = await provider.fetch_ohlcv(asset.symbol, 365)
         await _upsert_prices(db, asset.id, rows, is_demo=True)
 
         if asset.asset_type == "crypto":
@@ -223,6 +230,39 @@ async def seed_fixture_data(db: AsyncSession) -> None:
     await db.commit()
 
 
+async def seed_fixture_intraday_data(db: AsyncSession) -> None:
+    """Seed 30-min intraday candles + intraday Exposure Scores for all fixture assets."""
+    from app.services.intraday import (
+        build_30min_candles,
+        ingest_intraday_candles,
+        recompute_intraday_scores_for_stock,
+    )
+
+    provider = FixtureProvider()
+    assets_result = await db.execute(select(Asset))
+    assets = list(assets_result.scalars().all())
+
+    for asset in assets:
+        observations = await provider.fetch_intraday(asset.symbol, asset.asset_type)
+        candles = build_30min_candles(observations)
+        await ingest_intraday_candles(db, asset.id, candles, provider="fixture", is_demo=True)
+    await db.commit()
+
+    from app.services.intraday import _load_intraday_open_close
+
+    stocks = [a for a in assets if a.asset_type == "stock"]
+    crypto_assets = [a for a in assets if a.asset_type == "crypto"]
+
+    # Preload every crypto's intraday data once — recompute_intraday_scores_for_stock
+    # would otherwise re-query all crypto assets for each stock (stocks x crypto queries).
+    crypto_data_cache = {ca.id: await _load_intraday_open_close(db, ca.id) for ca in crypto_assets}
+
+    for stock in stocks:
+        await recompute_intraday_scores_for_stock(
+            db, stock, crypto_assets, crypto_data_cache=crypto_data_cache
+        )
+
+
 async def main() -> None:
     settings = get_settings()
     if not settings.use_demo_data:
@@ -235,7 +275,7 @@ async def main() -> None:
         if missing:
             for key in missing:
                 log.error("ERROR: %s is required when USE_DEMO_DATA=false", key)
-            sys.exit(1)
+            raise MissingProviderKeysError(f"Missing required provider key(s): {', '.join(missing)}")
     init_db(settings.database_url)
     try:
         async with get_factory()() as db:
@@ -257,4 +297,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except MissingProviderKeysError:
+        sys.exit(1)

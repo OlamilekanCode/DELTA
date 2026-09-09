@@ -63,7 +63,7 @@ export default function PortfolioPreview() {
               </span>
             </h2>
             <p className="mt-6 max-w-sm font-mono text-sm leading-relaxed text-muted">
-              Portfolio exposure analysis is coming soon. Connect your wallet to verify your $SynthEx balance — you&apos;ll be among the first to access it when it launches.
+              Portfolio exposure analysis is tiered by cumulative $SynthEx purchase value — a summary, detailed breakdown, or full sector analysis depending on your tier. Connect your wallet to check your balance and see your access.
             </p>
 
             {/* Weighted score callout — demo preview */}
@@ -101,9 +101,6 @@ export default function PortfolioPreview() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
                 </svg>
               </Link>
-              <span className="rounded-full border border-amber/30 bg-amber/10 px-3 py-1.5 font-mono text-xs font-medium text-amber">
-                Coming soon
-              </span>
             </div>
           </motion.div>
 
