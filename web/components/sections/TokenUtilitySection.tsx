@@ -7,7 +7,7 @@ type FeatureStatus = "available" | "pending_config" | "soon" | "future";
 const features: { label: string; status: FeatureStatus; note: string; desc: string }[] = [
   { label: "Exposure Scores",           status: "available",      note: "Live now",              desc: "Signed Pearson correlation score — 8 stocks × 30 crypto free, 20 × 100 for verified holders" },
   { label: "Exposure Graph",            status: "available",      note: "Live now",              desc: "Interactive graph of stock ↔ crypto relationships" },
-  { label: "Price History",             status: "available",      note: "Live now",              desc: "90-day daily OHLCV for all assets in the universe" },
+  { label: "Price History",             status: "available",      note: "Live now",              desc: "4H to 1Y chart ranges — 30-minute intraday buckets plus up to a year of daily OHLCV" },
   { label: "Extended Universe",         status: "available",      note: "Holder access",         desc: "20 stocks × 100 crypto assets, unlocked for verified $SynthEx holders" },
   { label: "Portfolio Exposure",        status: "pending_config", note: "Launches with token",   desc: "Tiered wallet exposure summary, detailed breakdown and sector analysis" },
   { label: "Advanced Portfolio Graphs", status: "soon",           note: "Coming soon",           desc: "Deeper historical portfolio charts for the $1,000+ tier" },
