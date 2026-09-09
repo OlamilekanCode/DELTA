@@ -138,6 +138,57 @@ The quote and history jobs share a PostgreSQL advisory lock (no-op on SQLite); i
 
 ---
 
+## Provider call budget
+
+One HTTP request is not the same thing as one unit of provider billing —
+both CoinGecko and Marketstack bill per symbol/asset requested within a
+batch call, not per HTTP round trip. The figures below keep those two
+numbers separate, and keep the CoinGecko monthly running rate separate
+from the Marketstack five-day prelaunch figure — they are not the same
+budget and must not be added or substituted for one another.
+
+**CoinGecko** (monthly running rate, current 100-asset holder catalogue):
+
+| Job | Calculation | Approx. monthly calls |
+|---|---|---|
+| Quote batch (`refresh-crypto-quotes`, every 5 min, 24/7) | `288 calls/day × 30 days` | ≈ 8,640 |
+| Historical backfill (100 assets, Tue/Fri) | 2 refreshes/week × ~4.3 weeks | ≈ 800–1,000 |
+
+Each call above is one batch HTTP request covering up to 100 assets — not
+100 separate credits per call, but check the active plan's per-asset
+billing multiplier before treating "calls" and "credits" as interchangeable.
+Retries and any ad-hoc/manual backfills are additional and must be added
+to the risk estimate before committing to a plan tier.
+
+**Marketstack** (five-day prelaunch window, 20-stock holder catalogue):
+
+```
+20 symbols × ~13 completed 30-minute buckets/day × 5 trading days
+  ≈ 1,300 symbol credits
+```
+
+This is a single batched HTTP request per 30-minute run (one call covering
+all 20 symbols), but Marketstack bills per symbol within that batch — so
+"1,300" is symbol-credits, not HTTP calls. It also does not include EOD
+history refresh, backfill, or retry attempts, which consume additional
+credits on top of this figure. **The five-day prelaunch plan is not
+"within a 1,300-credit budget"** — that figure covers Marketstack intraday
+only; CoinGecko's usage above is a separate, larger, ongoing monthly
+number that must be budgeted independently.
+
+**Guardrails:**
+
+- The free (8 stocks / 30 crypto) and holder (20 stocks / 100 crypto)
+  catalogues are fixed by product agreement — do not shrink either to fit
+  a provider budget without separate approval.
+- A configurable intraday ingestion scope/budget guard (e.g. capping
+  symbols refreshed per run) is a reasonable future addition, but it must
+  never silently change which assets a tier can see, and a
+  scope-skipped symbol must report `collecting_data` honestly rather than
+  serving a stale score as current.
+
+---
+
 ## Security
 
 - Provider and RPC secrets live only in backend environment variables, never in `NEXT_PUBLIC_*` variables.
