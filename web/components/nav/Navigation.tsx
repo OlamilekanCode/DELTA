@@ -62,8 +62,11 @@ export default function Navigation() {
             <span className="hidden sm:inline">Synthetic Exposure</span>
           </Link>
 
-          {/* Desktop links */}
-          <ul className="hidden items-center gap-8 md:flex" role="list">
+          {/* Desktop links — gated to lg, matching MarketStatusBadge/ConnectWalletButton
+              below. Below lg the row (logo + 4 links + 2 social icons + wallet button)
+              overflowed/wrapped in the 768-1024px tablet range, so the hamburger now
+              covers that whole range instead of switching at md. */}
+          <ul className="hidden items-center gap-6 lg:flex xl:gap-8" role="list">
             {navLinks.map((l) => (
               <li key={l.href}>
                 <Link
@@ -102,7 +105,7 @@ export default function Navigation() {
             </a>
 
             <MarketStatusBadge className="hidden lg:inline-flex" />
-            <ConnectWalletButton className="hidden md:inline-flex" />
+            <ConnectWalletButton className="hidden lg:inline-flex" />
 
             {/* Mobile hamburger */}
             <button
@@ -110,7 +113,7 @@ export default function Navigation() {
               aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
               aria-expanded={menuOpen}
               aria-controls="mobile-menu"
-              className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg border border-white/[0.09] bg-panel text-muted transition-colors hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet md:hidden"
+              className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg border border-white/[0.09] bg-panel text-muted transition-colors hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet lg:hidden"
               onClick={() => setMenuOpen((v) => !v)}
             >
               {menuOpen ? (
@@ -130,7 +133,7 @@ export default function Navigation() {
       {/* Mobile drawer */}
       {menuOpen && (
         <div
-          className="fixed inset-0 z-40 md:hidden"
+          className="fixed inset-0 z-40 lg:hidden"
           role="dialog"
           aria-modal="true"
           aria-label="Navigation menu"

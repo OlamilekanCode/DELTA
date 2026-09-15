@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,13 @@ def _valid_adj_close(raw: object) -> float | None:
 
 class MarketstackProvider:
     BASE = "https://api.marketstack.com/v1"
+
+    # /intraday hangs indefinitely (no response, no error) when given a
+    # comma-separated multi-symbol `symbols` list — confirmed directly
+    # against the live API from multiple independent networks, unlike /eod
+    # which batches fine. Per-symbol requests fan out instead, bounded to
+    # stay under Marketstack's observed 5-requests/second cap.
+    _INTRADAY_CONCURRENCY = 4
 
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
@@ -155,8 +163,10 @@ class MarketstackProvider:
     async def fetch_intraday_candles(self, symbol: str, limit: int = 260) -> list["IntradayCandle"]:
         """Marketstack's /intraday endpoint already returns official 30-min bars,
         so each row becomes a candle directly (sample_count=1, quality "ok") rather
-        than going through client-side bucketing."""
-        from app.services.intraday import IntradayCandle
+        than going through client-side bucketing. Single symbol only — a
+        comma-separated multi-symbol request to this endpoint hangs
+        indefinitely rather than erroring (see fetch_intraday_candles_batch)."""
+        from app.services.intraday import IntradayCandle, floor_to_bucket
 
         log_provider_call("marketstack", "intraday", symbols=1, limit=limit)
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -167,7 +177,7 @@ class MarketstackProvider:
                     "symbols": symbol.upper(),
                     "interval": "30min",
                     "limit": limit,
-                    "sort": "ASC",
+                    "sort": "DESC",
                 },
             )
 
@@ -185,7 +195,11 @@ class MarketstackProvider:
                 continue
             if any(float(v) <= 0 for v in (o, h, low, c)):
                 continue
-            bucket_ts = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+            # Always floor defensively to the UTC 30-minute boundary so a
+            # provider timestamp with stray seconds or a different timezone
+            # offset still lands on the exact bucket CoinGecko-derived
+            # crypto candles use (see fetch_intraday_candles_batch).
+            bucket_ts = floor_to_bucket(datetime.fromisoformat(raw_date.replace("Z", "+00:00")))
             candles.append(IntradayCandle(
                 bucket_ts=bucket_ts,
                 open=float(o), high=float(h), low=float(low), close=float(c),
@@ -194,65 +208,44 @@ class MarketstackProvider:
             ))
         return candles
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        retry=retry_if_exception_type((ProviderError, httpx.TransportError)),
-        reraise=True,
-    )
     async def fetch_intraday_candles_batch(
         self, symbols: list[str], bars_per_symbol: int = 2
     ) -> dict[str, list["IntradayCandle"]]:
-        """Fetch the latest 30-min bar(s) for every stock symbol in ONE Marketstack
-        call, using the same comma-separated `symbols` batching as fetch_eod_batch —
-        never call /intraday once per symbol when this is available on the plan."""
-        from app.services.intraday import IntradayCandle, floor_to_bucket
+        """Fetch the latest 30-min bar(s) for every stock symbol.
+
+        Originally one comma-separated /intraday call for every symbol, the
+        same batching /eod uses — but confirmed (directly against the live
+        API, reproducible from multiple independent networks, not a
+        Render-specific network issue) that /intraday hangs indefinitely on
+        a multi-symbol `symbols` list instead of erroring, permanently
+        starving every stock of candles. One request per symbol instead,
+        bounded concurrency so this stays well under Marketstack's ~5
+        req/sec cap. Each symbol already retries individually (3 attempts,
+        see fetch_intraday_candles) — only raise here when EVERY symbol
+        failed outright, so callers (see ingestion/commands.py) still see a
+        genuine provider outage as a failure rather than a silent zero.
+        """
+        from app.services.intraday import IntradayCandle
 
         log_provider_call("marketstack", "intraday_batch", symbols=len(symbols))
-        symbols_str = ",".join(s.upper() for s in symbols)
+        semaphore = asyncio.Semaphore(self._INTRADAY_CONCURRENCY)
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.get(
-                f"{self.BASE}/intraday",
-                params={
-                    "access_key": self.api_key,
-                    "symbols": symbols_str,
-                    "interval": "30min",
-                    "limit": bars_per_symbol * len(symbols),
-                    "sort": "DESC",
-                },
-            )
+        async def _fetch_one(symbol: str) -> list["IntradayCandle"]:
+            async with semaphore:
+                return await self.fetch_intraday_candles(symbol, limit=bars_per_symbol)
 
-        if r.status_code == 429:
-            raise ProviderError(429, "Marketstack rate limited on intraday batch")
+        results = await asyncio.gather(*(_fetch_one(s) for s in symbols), return_exceptions=True)
 
-        if r.status_code != 200:
-            raise ProviderError(r.status_code, f"Marketstack intraday batch error {r.status_code}")
+        by_symbol: dict[str, list[IntradayCandle]] = {}
+        failures = 0
+        for symbol, result in zip(symbols, results):
+            if isinstance(result, BaseException):
+                failures += 1
+                by_symbol[symbol.upper()] = []
+            else:
+                by_symbol[symbol.upper()] = result
 
-        by_symbol: dict[str, list[IntradayCandle]] = {s.upper(): [] for s in symbols}
-        for item in r.json().get("data", []):
-            sym = item.get("symbol", "").upper()
-            if sym not in by_symbol:
-                continue
-            raw_date = item.get("date", "")
-            o, h, low, c = item.get("open"), item.get("high"), item.get("low"), item.get("close")
-            if not raw_date or None in (o, h, low, c):
-                continue
-            if any(float(v) <= 0 for v in (o, h, low, c)):
-                continue
-            # Marketstack's "date" is documented as the bar-start timestamp
-            # (same convention as CoinGecko-derived buckets, which floor
-            # sample timestamps to bucket start) — this must be reconfirmed
-            # against a live Marketstack response before launch. Regardless
-            # of that, always floor defensively to the UTC 30-minute
-            # boundary so a provider timestamp with stray seconds or a
-            # different timezone offset still lands on the exact bucket
-            # CoinGecko-derived crypto candles use.
-            bucket_ts = floor_to_bucket(datetime.fromisoformat(raw_date.replace("Z", "+00:00")))
-            by_symbol[sym].append(IntradayCandle(
-                bucket_ts=bucket_ts,
-                open=float(o), high=float(h), low=float(low), close=float(c),
-                sample_count=1,
-                data_quality="ok",
-            ))
-        return {sym: sorted(rows, key=lambda cd: cd.bucket_ts) for sym, rows in by_symbol.items()}
+        if symbols and failures == len(symbols):
+            raise ProviderError(0, "Marketstack intraday failed for every symbol")
+
+        return by_symbol

@@ -1,6 +1,8 @@
-"""Tests for the batched intraday provider-call design (section 4):
+"""Tests for the intraday provider-call design (section 4):
 
-- One Marketstack call for every stock symbol, not one per symbol.
+- One Marketstack /intraday call PER stock symbol, never one comma-separated
+  multi-symbol call — confirmed live that batching hangs the endpoint
+  indefinitely instead of erroring (see MarketstackProvider._INTRADAY_CONCURRENCY).
 - Crypto candles are built entirely from stored crypto_quote_observations —
   the intraday job makes zero CoinGecko calls.
 - The current/in-progress 30-minute bucket is never persisted.
@@ -51,18 +53,26 @@ def _marketstack_intraday_response(symbols: list[str], bucket_ts: datetime) -> d
 
 
 @pytest.mark.asyncio
-async def test_fetch_intraday_candles_batch_makes_one_request(httpx_mock) -> None:
+async def test_fetch_intraday_candles_batch_makes_one_request_per_symbol(httpx_mock) -> None:
+    """A comma-separated multi-symbol /intraday call hangs indefinitely on
+    the live API instead of erroring — the batch must fan out to one request
+    per symbol, never send all symbols in a single call."""
     symbols = ["NVDA", "TSLA", "AMD"]
     bucket_ts = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(minutes=30)
     httpx_mock.add_response(
         url=re.compile(r"https://api\.marketstack\.com/v1/intraday.*"),
-        json=_marketstack_intraday_response(symbols, bucket_ts),
+        json=_marketstack_intraday_response(["ANY"], bucket_ts),
+        is_reusable=True,
     )
     provider = MarketstackProvider("ms-key")
     result = await provider.fetch_intraday_candles_batch(symbols)
 
     requests = httpx_mock.get_requests()
-    assert len(requests) == 1  # exactly one HTTP call for all three symbols
+    assert len(requests) == len(symbols)  # one HTTP call per symbol, never a comma-joined batch
+    for req in requests:
+        symbols_param = req.url.params["symbols"]
+        assert "," not in symbols_param
+        assert symbols_param in symbols
     assert set(result.keys()) == set(symbols)
     for sym in symbols:
         assert len(result[sym]) == 1
@@ -88,8 +98,6 @@ async def test_cmd_refresh_intraday_makes_no_coingecko_calls(db: AsyncSession, m
 
     monkeypatch.setattr(mc, "get_market_status", fake_status)
 
-    stock_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
-    stocks = stock_result.scalars().all()
     crypto_result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
     crypto_assets = crypto_result.scalars().all()
 
@@ -102,7 +110,12 @@ async def test_cmd_refresh_intraday_makes_no_coingecko_calls(db: AsyncSession, m
 
     httpx_mock.add_response(
         url=re.compile(r"https://api\.marketstack\.com/v1/intraday.*"),
-        json=_marketstack_intraday_response([s.symbol for s in stocks], completed_bucket),
+        # A real single-symbol /intraday response only ever contains that one
+        # symbol's own bars (confirmed live) — the mock must match that
+        # shape, not the old all-symbols-in-one-response batch payload,
+        # since it's now reused verbatim for every per-symbol request.
+        json=_marketstack_intraday_response(["ANY"], completed_bucket),
+        is_reusable=True,  # one /intraday request per stock now, not one shared batch call
     )
 
     await cmd_refresh_intraday()
@@ -133,8 +146,6 @@ async def test_cmd_refresh_intraday_excludes_in_progress_bucket(db: AsyncSession
 
     monkeypatch.setattr(mc, "get_market_status", fake_status)
 
-    stock_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
-    stocks = stock_result.scalars().all()
     crypto_result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
     crypto_assets = crypto_result.scalars().all()
 
@@ -146,7 +157,8 @@ async def test_cmd_refresh_intraday_excludes_in_progress_bucket(db: AsyncSession
 
     httpx_mock.add_response(
         url=re.compile(r"https://api\.marketstack\.com/v1/intraday.*"),
-        json=_marketstack_intraday_response([s.symbol for s in stocks], in_progress_bucket),
+        json=_marketstack_intraday_response(["ANY"], in_progress_bucket),
+        is_reusable=True,  # one /intraday request per stock now, not one shared batch call
     )
 
     await cmd_refresh_intraday()
@@ -226,13 +238,14 @@ async def test_cmd_refresh_intraday_marks_marketstack_failed_on_error(db: AsyncS
 
     monkeypatch.setattr(mc, "get_market_status", fake_status)
 
-    # fetch_intraday_candles_batch retries on failure (stop_after_attempt(3))
-    # before finally re-raising — register a failing response for each attempt.
-    for _ in range(3):
-        httpx_mock.add_response(
-            url=re.compile(r"https://api\.marketstack\.com/v1/intraday.*"),
-            status_code=500,
-        )
+    # Every symbol's per-symbol fetch retries on failure (stop_after_attempt(3))
+    # before re-raising, and every symbol fails here — one reusable failing
+    # response covers all of them regardless of stock count or retry count.
+    httpx_mock.add_response(
+        url=re.compile(r"https://api\.marketstack\.com/v1/intraday.*"),
+        status_code=500,
+        is_reusable=True,
+    )
 
     counts = await cmd_refresh_intraday()
     assert counts["marketstack_failed"] is True

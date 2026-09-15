@@ -310,10 +310,13 @@ async def cmd_refresh_intraday() -> dict:
 
     Crypto candles are built entirely from already-stored 5-minute
     `crypto_quote_observations` (see cmd_refresh_crypto_quotes) — this job
-    makes ZERO CoinGecko calls. Stock candles come from ONE batched
-    Marketstack /intraday call for every stock symbol, never one call per
-    symbol. Skipped while the US market is closed, except to finalize the
-    last bucket of the session that just closed (within a grace window).
+    makes ZERO CoinGecko calls. Stock candles come from one Marketstack
+    /intraday call per stock symbol, bounded concurrency (see
+    MarketstackProvider.fetch_intraday_candles_batch) — a single
+    comma-separated multi-symbol call was tried first but confirmed to hang
+    the endpoint indefinitely instead of erroring. Skipped while the US
+    market is closed, except to finalize the last bucket of the session that
+    just closed (within a grace window).
     """
     from app.services.intraday import (
         BUCKET_MINUTES,
