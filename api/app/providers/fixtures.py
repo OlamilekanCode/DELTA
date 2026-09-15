@@ -471,7 +471,7 @@ FIXTURE_ASSETS: list[dict] = [
     {"symbol": "CFG",   "name": "Centrifuge",             "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "centrifuge"},
     {"symbol": "RSR",   "name": "Reserve Rights",         "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "reserve-rights-token"},
     {"symbol": "TRU",   "name": "TrueFi",                 "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "truefi"},
-    {"symbol": "OM",    "name": "MANTRA",                 "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "mantra-dao"},
+    {"symbol": "OM",    "name": "MANTRA",                 "asset_type": "crypto", "category": "RWA",          "access": "holder", "coingecko_id": "mantra"},
     # Crypto — Oracle/Data (additional) — holder tier
     {"symbol": "PYTH", "name": "Pyth Network",           "asset_type": "crypto", "category": "Oracle/Data",  "access": "holder", "coingecko_id": "pyth-network"},
     {"symbol": "BAND", "name": "Band Protocol",          "asset_type": "crypto", "category": "Oracle/Data",  "access": "holder", "coingecko_id": "band-protocol"},

@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAccount, useSignMessage } from "wagmi";
 import { useSession } from "@/hooks/useSession";
 import { getConfiguredChainId, isWalletFullyConfigured } from "@/lib/wallet-config";
+import { nonceFetchErrorMessage, signatureErrorMessage, verifyErrorMessage } from "@/lib/wallet-errors";
 
 /**
  * The 10 required wallet states, covering disconnected/wrong-chain/unauthenticated
@@ -140,12 +141,21 @@ export default function WalletStateManager({ children }: { children: React.React
     setSigningIn(true);
     setSignInError(null);
     try {
+      // Each step maps its own failure to a clean, user-facing message —
+      // never surface a raw wallet error or a backend SiweError code
+      // (e.g. "invalid_signature", multi-line viem debug output) directly,
+      // see lib/wallet-errors.ts.
       const nonceRes = await fetch("/api/auth/nonce", { method: "POST" });
-      if (!nonceRes.ok) throw new Error("Could not get a sign-in nonce");
+      if (!nonceRes.ok) throw new Error(nonceFetchErrorMessage());
       const { nonce } = await nonceRes.json();
 
       const message = await buildSiweMessage(address, configuredChainId, nonce);
-      const signature = await signMessageAsync({ message });
+      let signature: string;
+      try {
+        signature = await signMessageAsync({ message });
+      } catch (err) {
+        throw new Error(signatureErrorMessage(err));
+      }
 
       const verifyRes = await fetch("/api/auth/verify", {
         method: "POST",
@@ -153,16 +163,11 @@ export default function WalletStateManager({ children }: { children: React.React
         body: JSON.stringify({ message, signature }),
       });
       if (!verifyRes.ok) {
-        const body = await verifyRes.json().catch(() => ({}));
-        // FastAPI's HTTPException serializes as {"detail": "..."}, not
-        // {"error": "..."} — reading body.error always missed the real
-        // SIWE error code (expired_nonce, invalid_signature, etc.) and
-        // silently fell back to the generic message every time.
-        throw new Error(body.detail ?? body.error ?? "Sign-in verification failed");
+        throw new Error(await verifyErrorMessage(verifyRes));
       }
       await session.refresh();
     } catch (err) {
-      setSignInError(err instanceof Error ? err.message : "Sign-in failed");
+      setSignInError(err instanceof Error ? err.message : "Sign-in failed. Please try again.");
     } finally {
       setSigningIn(false);
     }
