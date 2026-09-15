@@ -98,8 +98,6 @@ async def test_cmd_refresh_intraday_makes_no_coingecko_calls(db: AsyncSession, m
 
     monkeypatch.setattr(mc, "get_market_status", fake_status)
 
-    stock_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
-    stocks = stock_result.scalars().all()
     crypto_result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
     crypto_assets = crypto_result.scalars().all()
 
@@ -148,8 +146,6 @@ async def test_cmd_refresh_intraday_excludes_in_progress_bucket(db: AsyncSession
 
     monkeypatch.setattr(mc, "get_market_status", fake_status)
 
-    stock_result = await db.execute(select(Asset).where(Asset.asset_type == "stock"))
-    stocks = stock_result.scalars().all()
     crypto_result = await db.execute(select(Asset).where(Asset.asset_type == "crypto"))
     crypto_assets = crypto_result.scalars().all()
 
