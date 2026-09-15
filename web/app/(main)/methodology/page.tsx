@@ -160,7 +160,7 @@ export default function MethodologyPage() {
         <ul className="ml-4 list-disc space-y-2">
           <li>The 90-day window may not capture long-term structural relationships</li>
           <li>Correlation can change rapidly with market regime shifts</li>
-          <li>The crypto universe is limited to 30 curated assets</li>
+          <li>The asset universe is curated, not exhaustive — 8 stocks × 30 crypto free, 20 × 100 for verified $SynthEx holders</li>
           <li>Stock market holidays reduce observation counts</li>
           <li>
             Scores reflect price-movement similarity, not ownership, market-cap exposure, or
